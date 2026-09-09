@@ -1,0 +1,129 @@
+{
+  "format": "tome-nota-local-v1",
+  "items": [
+    {
+      "id": "TN-ARQUIVO-01",
+      "title": "Boletim de vagas do IDT — 04/09/2026",
+      "locality": "Ceará / Pecém",
+      "category": "Emprego",
+      "url": "https://www.idt.org.br/vagas-disponiveis/7395",
+      "docDate": "2026-09-04",
+      "factDate": "2026-09-04",
+      "evidence": "Boletim identificado no teste com data de 04/09/2026, às 16h33. A existência deste boletim não comprova vagas abertas hoje. A unidade de atendimento não determina o local do emprego.",
+      "note": "Consultar um boletim atualizado antes de redigir.",
+      "status": "aprovada",
+      "version": 7,
+      "checked": true,
+      "draft": {
+        "title": "Teste de migração, sem valor jornalístico",
+        "site": "Conteúdo fictício de teste.",
+        "instagram": "Legenda fictícia",
+        "stories": "Tela livre 1\n\nTela livre 2\nTela livre 3"
+      }
+    },
+    {
+      "id": "TN-ARQUIVO-02",
+      "title": "Lista de presença e ausência da 26ª convocação",
+      "locality": "São Gonçalo do Amarante/CE",
+      "category": "Serviço",
+      "url": "https://saogoncalodoamarante.ce.gov.br/processoseletivo.php?grup=39",
+      "docDate": "2026-09-04",
+      "factDate": "",
+      "evidence": "A tabela consultada no teste mostra uma lista de presença e ausência da 26ª convocação em 04/09/2026. Há divergência entre o número informado na descrição (030) e na coluna do documento (039/2026).",
+      "note": "Ler o documento integral e esclarecer a numeração antes de afirmar prazos ou nomes.",
+      "status": "apurar",
+      "version": 1,
+      "checked": false,
+      "draft": {
+        "title": "",
+        "site": "",
+        "instagram": "",
+        "stories": ""
+      }
+    },
+    {
+      "id": "TN-ARQUIVO-03",
+      "title": "V Prêmio de Comunicação AECIPP — anúncio anterior",
+      "locality": "Complexo do Pecém",
+      "category": "Comunicação",
+      "url": "https://aecipp.com.br/aecipp-lanca-v-premio-de-comunicacao-com-foco-no-papel-do-cipp-na-nova-economia-do-ceara/",
+      "docDate": "",
+      "factDate": "",
+      "evidence": "Anúncio de agosto identificado no teste. O prazo informado no material anterior era 27/10/2026; conferir regulamento e eventuais alterações. Este registro não constitui novidade.",
+      "note": "Verificar regras e prazo no documento vigente.",
+      "status": "apurar",
+      "version": 1,
+      "checked": false,
+      "draft": {
+        "title": "",
+        "site": "",
+        "instagram": "",
+        "stories": ""
+      }
+    }
+  ],
+  "memories": [
+    {
+      "content": "Priorizar São Gonçalo do Amarante/CE, Pecém, Taíba, Siupé, Paracuru, Paraipaba e Caucaia. Grande Fortaleza quando houver impacto regional.",
+      "at": null
+    },
+    {
+      "content": "Não reciclar notícia antiga como novidade. Conferir documento, data do fato e prazos. Polícia, morte, acidente, denúncia, política e saúde exigem revisão humana explícita.",
+      "at": null
+    },
+    {
+      "content": "Curta",
+      "at": null
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-07T12:30:00Z",
+      "action": "Aprovação editorial local",
+      "id": "TN-ARQUIVO-01",
+      "title": "Boletim de vagas do IDT — 04/09/2026",
+      "version": 7,
+      "note": "Nota de teste",
+      "snapshot": {
+        "id": "TN-ARQUIVO-01",
+        "title": "Boletim de vagas do IDT — 04/09/2026",
+        "locality": "Ceará / Pecém",
+        "category": "Emprego",
+        "url": "https://www.idt.org.br/vagas-disponiveis/7395",
+        "docDate": "2026-09-04",
+        "factDate": "2026-09-04",
+        "evidence": "Boletim identificado no teste com data de 04/09/2026, às 16h33. A existência deste boletim não comprova vagas abertas hoje. A unidade de atendimento não determina o local do emprego.",
+        "note": "Consultar um boletim atualizado antes de redigir.",
+        "status": "aprovada",
+        "version": 7,
+        "checked": true,
+        "draft": {
+          "title": "Teste de migração, sem valor jornalístico",
+          "site": "Conteúdo fictício de teste.",
+          "instagram": "Legenda fictícia",
+          "stories": "Tela livre 1\n\nTela livre 2\nTela livre 3"
+        }
+      }
+    },
+    {
+      "at": null,
+      "action": "Registro incompleto antigo",
+      "title": "Sem ID no original",
+      "detalhe": "Dado adicional de negócio"
+    }
+  ],
+  "profile": {
+    "weights": {
+      "pecem": 2
+    },
+    "decisions": 4
+  },
+  "extra": {
+    "editorial": "Conservar este conteúdo",
+    "api_key": "segredo-ficticio-123456",
+    "nested": {
+      "password": "segredo-ficticio-123456",
+      "texto": "sk-ant-testeabcdefghijklmnop"
+    }
+  }
+}

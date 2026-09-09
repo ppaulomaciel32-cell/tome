@@ -1,0 +1,21 @@
+# Aplicar após selecionar o repositório e conferir recursos/custos no Render.
+# O painel exige login; não há publicação automática de notícias.
+services:
+  - type: web
+    name: radar-tome-nota
+    runtime: node
+    plan: free
+    buildCommand: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SUPABASE_URL
+        value: https://dfbeerxqqfqkwlljrjko.supabase.co
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SESSION_ENCRYPTION_KEY
+        sync: false
+      - key: APP_ORIGIN
+        sync: false
