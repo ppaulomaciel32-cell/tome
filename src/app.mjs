@@ -1,11 +1,12 @@
 import Fastify from 'fastify';
+import { suggestHeadlines } from './headlines.mjs';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { sealSession, openSession, sanitize, RateLimiter } from './security.mjs';
 
-export async function buildApp({ provider, origin, sessionKey, secure = true, audit = () => {}, secrets = [], webRoot = fileURLToPath(new URL('../dist', import.meta.url)) }) {
+export async function buildApp({ provider, origin, sessionKey, secure = true, audit = () => {}, secrets = [], headlineGenerator = suggestHeadlines, webRoot = fileURLToPath(new URL('../dist', import.meta.url)) }) {
   if (!provider || !origin || !Buffer.isBuffer(sessionKey) || sessionKey.length !== 32) throw new Error('Configuração do servidor incompleta.');
   const app = Fastify({ logger: false, bodyLimit: 10_000_000, trustProxy: false });
   const limiter = new RateLimiter();
@@ -84,6 +85,25 @@ export async function buildApp({ provider, origin, sessionKey, secure = true, au
   app.post('/api/v1/auth/renovar', async (req, reply) => ({ usuario: await rpc(req, reply, 'tn_contexto') }));
   app.get('/api/v1/pautas', { schema: { headers: roomHeaders, params: roomParams } }, (req, reply) => rpc(req, reply, 'tn_listar_pautas', { redacao_id: req.headers['x-redacao-id'], limite: 250 }));
   app.get('/api/v1/pautas/:id', { schema: { headers: roomHeaders, params: roomParams } }, (req, reply) => rpc(req, reply, 'tn_consultar', { redacao_id: req.headers['x-redacao-id'], recurso: 'pauta', pauta_id: req.params.id }));
+  app.post('/api/v1/headlines/:id', {schema:{headers:roomHeaders,params:roomParams,body:{type:'object',additionalProperties:false,required:['nota','revisao_esperada'],properties:{nota:note,revisao_esperada:{type:'integer',minimum:1}}}}}, async(req,reply)=>{
+    const context=await rpc(req,reply,'tn_contexto');
+    if(!context.redacoes?.some(r=>r.id===req.headers['x-redacao-id']&&['editor_chefe','redator'].includes(r.papel)))throw fail(403,'Seu papel não permite gerar títulos.');
+    if(!req.body.nota.trim())throw fail(422,'Informe o motivo da geração.');
+    const args={redacao_id:req.headers['x-redacao-id'],pauta_id:req.params.id};
+    const item=await rpc(req,reply,'tn_consultar',{...args,recurso:'pauta'});
+    if(item.pauta.revisao_registro!==req.body.revisao_esperada)throw fail(409,'A pauta mudou. Atualize antes de gerar.');
+    const c=item.conferencia_evidencia,p=item.pauta;
+    if(!p.evidencia?.trim()||!c||c.versao!==p.versao||c.hash_verificado!==p.hash_evidencia)throw fail(422,'Confira a evidência desta versão antes de pedir headlines.');
+    if(!limiter.take('headlines:'+context.id,4,3600000))throw fail(429,'Limite de quatro pedidos por hora. Aguarde antes de tentar novamente.');
+    const started=await rpc(req,reply,'tn_comando',{...args,acao:'nota',revisao_esperada:p.revisao_registro,dados:{},nota:'Pedido de headlines por IA: '+req.body.nota});
+    const memorias=await rpc(req,reply,'tn_consultar',{redacao_id:args.redacao_id,recurso:'memorias'});
+    const fila=await rpc(req,reply,'tn_listar_pautas',{redacao_id:args.redacao_id,limite:250});
+    item.memorias=memorias.filter(m=>m.ativa).map(m=>m.texto);
+    item.exemplos=fila.filter(x=>x.pauta.status==='aprovada'&&x.rascunho?.texto_site?.trim()).sort((a,b)=>Number(b.pauta.categoria===p.categoria)-Number(a.pauta.categoria===p.categoria)||String(b.aprovacao?.criada_em||b.pauta.atualizada_em).localeCompare(String(a.aprovacao?.criada_em||a.pauta.atualizada_em))).slice(0,3).map(x=>({titulo:x.rascunho.titulo_editorial,texto:x.rascunho.texto_site}));
+    const result=sanitize(await headlineGenerator(item),secrets);
+    await rpc(req,reply,'tn_comando',{...args,acao:'nota',revisao_esperada:started.pauta.revisao_registro,dados:{},nota:'Sugestões de IA, não conferidas; nenhum título alterado. '+JSON.stringify(result)});
+    return result;
+  });
   app.get('/api/v1/eventos', { schema: { headers: roomHeaders, params: roomParams } }, (req, reply) => rpc(req, reply, 'tn_consultar', { redacao_id: req.headers['x-redacao-id'], recurso: 'eventos' }));
   app.post('/api/v1/pautas', { schema: { headers: roomHeaders, params: roomParams, body: { type: 'object', required: ['dados','nota'], additionalProperties: false, properties: { dados: { type: 'object' }, nota: note } } } }, (req, reply) => rpc(req, reply, 'tn_comando', { redacao_id: req.headers['x-redacao-id'], pauta_id: null, acao: 'criar', revisao_esperada: null, dados: sanitize(req.body.dados, secrets), nota: sanitize(req.body.nota, secrets) }));
   app.patch('/api/v1/pautas/:id/conteudo', { schema: { headers: roomHeaders, params: roomParams, body: { type: 'object', required: ['revisao_esperada','nota'], additionalProperties: false, properties: { dados: { type: 'object', default: {} }, revisao_esperada: { type: 'integer', minimum: 1 }, nota: note } } } }, (req, reply) => rpc(req, reply, 'tn_comando', { redacao_id: req.headers['x-redacao-id'], pauta_id: req.params.id, acao: 'editar', revisao_esperada: req.body.revisao_esperada, dados: sanitize(req.body.dados, secrets), nota: sanitize(req.body.nota, secrets) }));
