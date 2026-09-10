@@ -1,17 +1,7 @@
-# Radar Tome Nota
+# Radar Tome Nota — servidor
 
-Central editorial do Tome Nota News. Node/Fastify, React e Supabase/Postgres.
+Comece por `COMECE-AQUI.md`. O status atual e as limitações estão em `RELATORIO-ETAPA-2.md`.
 
-## Estado
+A máquina de estados da coleta, circuit breaker, DLQ e o módulo auditável de assuntos em crescimento estão em [`docs/PIPELINE-ASSUNTOS.md`](docs/PIPELINE-ASSUNTOS.md). O estado `publicado` desse pipeline significa visível no painel e não autoriza publicação jornalística.
 
-Entrega intermediária: fluxo editorial, histórico imutável, importação do HTML v1 e acesso por papéis. Coleta automática, aprendizado, geração por Claude e backup diário ainda não estão implementados. Aprovação não publica notícias.
-
-## Executar
-
-Use Node 22 ou superior. Execute `npm ci --ignore-scripts`, copie `.env.example` para `.env.local`, preencha as variáveis no ambiente do servidor e rode `npm run build` e `npm start`.
-
-No Render, a origem é obtida de `RENDER_EXTERNAL_URL`, ou de `APP_ORIGIN` quando definida. Nenhuma chave deve ser inserida no frontend ou no repositório.
-
-## Validar
-
-`npm test` executa os testes HTTP com provedor simulado. Os testes SQL em `tests/` verificam o Postgres com fixtures revertidas. Não execute as migrações de criação em uma base já configurada.
+Etapas concluídas: núcleo editorial, importação v1, autenticação inicial, hospedagem, headlines via OmniRoute e estrutura persistente do pipeline/assuntos. O agendador e os adaptadores das fontes ainda precisam ser ligados ao executor de coleta.

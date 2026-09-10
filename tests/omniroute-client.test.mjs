@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createOmniRouteClient} from '../src/omniroute-client.mjs';
+test('telemetria usa apenas cabeçalhos permitidos e nunca inclui a chave',async()=>{const logs=[];let time=0;const request=async(url,options)=>{assert.equal(options.headers.Authorization,'Bearer segredo-de-teste');return {ok:true,status:200,headers:{get:k=>({'x-omniroute-provider':'pool','x-omniroute-model':'modelo-real','authorization':'vazamento'}[k]||null)},json:async()=>({model:'m',data:[{embedding:[1,0]}],usage:{total_tokens:2}})}};const client=createOmniRouteClient({baseUrl:'https://api.example/v1',apiKey:'segredo-de-teste',model:'auto',request,clock:()=>++time,onTelemetry:async x=>logs.push(x)});const r=await client.embeddings(['texto']);assert.deepEqual(r.vectors,[[1,0]]);assert.equal(logs[0].provider,'pool');assert.equal(logs[0].modelUsed,'modelo-real');assert.equal(JSON.stringify(logs).includes('segredo-de-teste'),false);assert.equal(JSON.stringify(logs).includes('vazamento'),false);});
+
