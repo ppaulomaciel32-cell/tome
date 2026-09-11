@@ -18,9 +18,9 @@ for(const [label,role,checked,status] of [['leitor bloqueado','leitor',true,403]
  const res=await app.inject({method:'POST',url:'/api/v1/headlines/'+id,headers:{origin,cookie:login.headers['set-cookie'].split(';')[0],'x-redacao-id':r},payload:{nota:'Avaliar clareza',revisao_esperada:1}});
  assert.equal(res.statusCode,status);assert.equal(calls,status===200?1:0);assert.equal(events.length,status===200?2:0);assert.ok(events.every(e=>e.acao==='nota'));
 });
-test('cliente valida JSON e não expõe segredo; custo desconhecido',async()=>{
+test('Gemini valida JSON e não expõe segredo; custo desconhecido',async()=>{
  const item={pauta:{versao:1,evidencia:'Texto lido',hash_evidencia:'abc'},conferencia_evidencia:{versao:1,hash_verificado:'abc'}};
- const env={OMNIROUTE_API_KEY:'segredo-ficticio',OMNIROUTE_BASE_URL:'https://api.example/v1',OMNIROUTE_MODEL:'teste'};
- const result=await suggestHeadlines(item,env,async(url,options)=>{assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,'Bearer segredo-ficticio');return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({sugestoes:Array.from({length:3},()=>({titulo:'Título',justificativa:'Clareza'}))})}}],usage:{total_tokens:5}})}});
+ const env={GEMINI_API_KEY:'segredo-ficticio',GEMINI_MODEL:'teste',GEMINI_EMBEDDING_MODEL:'vetor'};
+ const result=await suggestHeadlines(item,env,async(url,options)=>{assert.equal(options.redirect,'error');assert.equal(options.headers['x-goog-api-key'],'segredo-ficticio');return {ok:true,status:200,json:async()=>({modelVersion:'teste-real',candidates:[{content:{parts:[{text:JSON.stringify({sugestoes:Array.from({length:3},()=>({titulo:'Título',justificativa:'Clareza'}))})}]}}],usageMetadata:{totalTokenCount:5}})}});
  assert.equal(result.custo_usd,null);assert.equal(JSON.stringify(result).includes('segredo-ficticio'),false);
 });
