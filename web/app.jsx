@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource/plus-jakarta-sans/400.css';
 import '@fontsource/plus-jakarta-sans/600.css';
@@ -20,6 +20,7 @@ function App() {
  const member=user?.redacoes.find(r=>r.id===room),chief=member?.papel==='editor_chefe',canWrite=member&&member.papel!=='leitor';
  const current=queue.find(x=>x.pauta.id===selected);
  const [headlines,setHeadlines]=useState(null);
+ const [recording,setRecording]=useState(false),recorderRef=useRef(null),voiceTimerRef=useRef(null);
  const [note,setNote]=useState(''),[checked,setChecked]=useState(false),[sensitive,setSensitive]=useState(false);
  useEffect(()=>{document.documentElement.dataset.theme=theme;try{localStorage.setItem('radar-theme',theme)}catch{}},[theme]);
  useEffect(()=>{const fn=e=>{if(dirty){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',fn);return()=>window.removeEventListener('beforeunload',fn)},[dirty]);
@@ -43,8 +44,28 @@ function App() {
  }
  async function switchTab(next){if(dirty)return setMessage('Salve as alterações antes de mudar de seção.');setTab(next);if(next==='history')await run(async()=>setHistory(await request('/eventos')));}
  async function newItem(){if(dirty)return setMessage('Salve a pauta atual primeiro.');const titulo=prompt('Qual é o assunto da pauta?');if(!titulo?.trim())return;const nota=prompt('Por que esta pauta deve ser apurada?');if(!nota?.trim())return setMessage('A pauta precisa de uma justificativa.');await run(async()=>{const data=await request('/pautas',{dados:{titulo,localidade:'São Gonçalo do Amarante/CE',categoria:'Serviço'},nota});setQueue(q=>[data,...q]);choose(data);setTab('radar')})}
+ async function applyVoiceCommand(result){const a=result.argumentos||{},heard=`Ouvi: “${result.transcricao}”`;
+  if(result.intencao==='abrir_dashboard'){setTab('dashboard');return setMessage(heard+' · Dashboard aberto.');}
+  if(result.intencao==='abrir_radar'){setTab('radar');return setMessage(heard+' · Radar aberto.');}
+  if(result.intencao==='abrir_historico'){await switchTab('history');return setMessage(heard+' · Histórico aberto.');}
+  if(result.intencao==='atualizar'){await refresh();return setMessage(heard+' · Fila atualizada.');}
+  if(result.intencao==='buscar'){setQuery(a.consulta||result.transcricao);setFilter('todas');setTab('radar');return setMessage(heard+' · Busca aplicada.');}
+  if(result.intencao==='filtrar'){const aliases={apurar:'apurar',apuracao:'apurar',revisar:'revisar',revisao:'revisar',aprovada:'aprovada',aprovadas:'aprovada',descartada:'descartada',descartadas:'descartada',todas:'todas'};const next=aliases[(a.status||'').toLocaleLowerCase('pt-BR')];if(next){setFilter(next);setTab('radar');return setMessage(heard+' · Filtro aplicado.');}}
+  if(result.intencao==='criar_pauta'&&canWrite&&a.titulo?.trim()){const dados={titulo:a.titulo.trim(),localidade:a.localidade?.trim()||'São Gonçalo do Amarante/CE',categoria:a.categoria?.trim()||'A definir',url_fonte:a.url_fonte?.trim()||'',evidencia:a.evidencia?.trim()||''};const data=await request('/pautas',{dados,nota:a.nota?.trim()||'Pauta registrada por comando de voz: '+result.transcricao});setQueue(q=>[data,...q]);choose(data);setTab('radar');return setMessage(heard+' · Pauta criada em apuração. Nenhuma publicação foi feita.');}
+  setMessage(heard+' · Não executei nenhuma ação porque o comando não ficou claro ou não é permitido.');
+ }
+ async function voice(){
+  if(recording){recorderRef.current?.stop();return;}
+  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)return setMessage('Este navegador não oferece gravação de áudio compatível.');
+  if(dirty)return setMessage('Salve a pauta antes de usar um comando que possa trocar de tela.');
+  try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const preferred=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));const recorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined),chunks=[];recorderRef.current=recorder;
+   recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+   recorder.onstop=()=>{clearTimeout(voiceTimerRef.current);setRecording(false);stream.getTracks().forEach(track=>track.stop());const blob=new Blob(chunks,{type:recorder.mimeType||chunks[0]?.type||'audio/webm'});const reader=new FileReader();reader.onload=()=>run(async()=>{const audio_base64=String(reader.result).split(',')[1];const result=await request('/voice/command',{audio_base64,mime_type:blob.type.split(';')[0]});await applyVoiceCommand(result)});reader.onerror=()=>setMessage('Não consegui ler a gravação.');reader.readAsDataURL(blob)};
+   recorder.start();setRecording(true);setMessage('Ouvindo… fale o comando e clique novamente para enviar.');voiceTimerRef.current=setTimeout(()=>recorder.state==='recording'&&recorder.stop(),30000);
+  }catch{setMessage('Permita o uso do microfone no navegador para usar comandos de voz.');}
+ }
  async function copy(){if(dirty)return setMessage('Salve o pacote antes de copiar.');const p=current.pauta,d=current.rascunho;const text=`${p.codigo} v${p.versao}\n${labels[p.status]}\n\n${d.titulo_editorial}\n\nSITE\n${d.texto_site}\n\nINSTAGRAM\n${d.instagram}\n\nSTORIES\n${d.stories.join('\n\n')}\n\nFONTE\n${p.url_fonte}\n\nNOTA\n${p.nota_apuracao}`;try{await navigator.clipboard.writeText(text);setMessage('Pacote salvo copiado.')}catch{download(text,'Pacote-Tome-Nota.txt')}}
- return <><header><div className="brand"><b className="mark">TN<span>•</span></b><div>TOME NOTA<small>CENTRAL DA REDAÇÃO</small></div></div><div className="header-actions"><button aria-label="Alternar tema" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'Modo escuro':'Modo claro'}</button>{user&&<button onClick={()=>{if(dirty)return setMessage('Salve a pauta antes de sair.');run(async()=>{await request('/auth/logout',{});setUser(null);setRoom('');setQueue([]);choose(null)})}}>Sair</button>}</div></header>
+ return <><header><div className="brand"><b className="mark">TN<span>•</span></b><div>TOME NOTA<small>CENTRAL DA REDAÇÃO</small></div></div><div className="header-actions">{user&&<button className={recording?'voice recording':'voice'} disabled={busy} aria-pressed={recording} onClick={voice}>{recording?'■ Enviar voz':'● Comando de voz'}</button>}<button aria-label="Alternar tema" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'Modo escuro':'Modo claro'}</button>{user&&<button onClick={()=>{if(dirty)return setMessage('Salve a pauta antes de sair.');run(async()=>{await request('/auth/logout',{});setUser(null);setRoom('');setQueue([]);choose(null)})}}>Sair</button>}</div></header>
  <main>{message&&<div role="status" className="feedback">{message}<button aria-label="Fechar aviso" onClick={()=>setMessage('')}>×</button></div>}
  {loading?<p>Verificando acesso…</p>:!user?<div className="login-layout"><div><p className="eyebrow">CEARÁ · JORNALISMO LOCAL</p><h1>O que merece<br/>virar notícia.</h1><p className="lead">Fontes, evidências e decisões.<br/>Uma mesa de trabalho para toda a redação.</p><p className="footnote">São Gonçalo do Amarante · Pecém · Taíba · Siupé<br/>Paracuru · Paraipaba · Caucaia</p></div><form className="panel login" onSubmit={login}><p className="eyebrow">RADAR TOME NOTA</p><h2>Entrar na redação</h2><p className="muted">Use sua conta cadastrada para acessar a fila compartilhada.</p><Field label="E-mail" type="email" value={email} onChange={setEmail} autoComplete="username" required/><Field label="Senha" type="password" value={password} onChange={setPassword} autoComplete="current-password" required/><button className="primary full" disabled={busy}>Entrar</button><p className="footnote">O acesso é liberado pelo editor-chefe.</p></form></div>:<><div className="top"><div><p className="eyebrow">{member?.nome} · {roles[member?.papel]}</p><h1>O que merece virar notícia.</h1><p className="muted">Fila compartilhada · evidência antes da decisão</p></div>{canWrite&&<button className="primary" disabled={busy} onClick={newItem}>+ Adicionar pauta</button>}</div>
  <nav><button className={tab==='dashboard'?'active':''} onClick={()=>switchTab('dashboard')}>Dashboard</button><button className={tab==='radar'?'active':''} onClick={()=>switchTab('radar')}>Radar <span>{queue.length}</span></button><button className={tab==='history'?'active':''} onClick={()=>switchTab('history')}>Histórico{chief?' e importação':''}</button></nav>

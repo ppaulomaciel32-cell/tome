@@ -18,7 +18,7 @@ Falha de IA aciona extração determinística por texto e gazetteer. O item rece
 
 ## Assuntos e tendência
 
-Itens só agrupam quando têm cidade igual, entidade comum, distância temporal de até 48 horas e similaridade suficiente. Embeddings usam limiar padrão 0,85. Quando indisponíveis, palavras-chave usam limiar 0,35 e o grupo fica com confiança baixa.
+Itens só agrupam quando têm cidade igual, entidade comum, distância temporal de até 48 horas e similaridade suficiente. Embeddings são obtidos diretamente pelo Gemini, com limiar padrão 0,85. Quando indisponíveis, palavras-chave usam limiar 0,35 e o grupo fica com confiança baixa.
 
 `baseline_24h` é a média das sete janelas anteriores. `crescimento = (ocorrências_24h - baseline_24h) / max(baseline_24h, 1)`.
 

@@ -19,7 +19,7 @@ export function openSession(token, key) {
     return value;
   } catch { return null; }
 }
-const secretKey = /apikey|authorization|password|senha|secret|credential|accesstoken|refreshtoken|servicerole|anthropickey|openai.?key/;
+const secretKey = /apikey|authorization|password|senha|secret|credential|accesstoken|refreshtoken|servicerole|geminikey|googleapikey|anthropickey|openai.?key/;
 export function sanitize(value, secrets = [], depth = 0) {
   if (depth > 40) throw Object.assign(new Error('JSON excede a profundidade permitida.'), { statusCode: 400 });
   if (typeof value === 'string') {

@@ -1,12 +1,13 @@
 import Fastify from 'fastify';
 import { suggestHeadlines } from './headlines.mjs';
+import { interpretVoiceCommand } from './voice.mjs';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { sealSession, openSession, sanitize, RateLimiter } from './security.mjs';
 
-export async function buildApp({ provider, origin, sessionKey, secure = true, audit = () => {}, secrets = [], headlineGenerator = suggestHeadlines, webRoot = fileURLToPath(new URL('../dist', import.meta.url)) }) {
+export async function buildApp({ provider, origin, sessionKey, secure = true, audit = () => {}, secrets = [], headlineGenerator = suggestHeadlines, voiceInterpreter = interpretVoiceCommand, webRoot = fileURLToPath(new URL('../dist', import.meta.url)) }) {
   if (!provider || !origin || !Buffer.isBuffer(sessionKey) || sessionKey.length !== 32) throw new Error('Configuração do servidor incompleta.');
   const app = Fastify({ logger: false, bodyLimit: 10_000_000, trustProxy: false });
   const limiter = new RateLimiter();
@@ -64,7 +65,7 @@ export async function buildApp({ provider, origin, sessionKey, secure = true, au
   const roomHeaders = { type: 'object', required: ['x-redacao-id'], properties: { 'x-redacao-id': uuid } };
   const roomParams = { type: 'object', properties: { id: uuid, acao: { type: 'string', enum: ['notas','conferir-evidencia','conferir-pacote','aprovar','descartar','apurar'] } } };
   const note = { type: 'string', minLength: 1, maxLength: 20000 };
-  app.get('/api/v1/health', async () => ({ ok: true, produto: 'Radar Tome Nota', etapa: 'acesso-e-importacao' }));
+  app.get('/api/v1/health', async () => ({ ok: true, produto: 'Radar Tome Nota', ia: 'google-gemini' }));
   app.post('/api/v1/auth/login', { schema: { body: { type: 'object', additionalProperties: false, required: ['email','password'], properties: { email: { type: 'string', format: 'email', maxLength: 254 }, password: { type: 'string', minLength: 1, maxLength: 1000 } } } } }, async (req, reply) => {
     if (!limiter.take(`ip:${req.ip}`, 30, 900000) || !limiter.take(`email:${req.body.email.trim().toLowerCase()}`, 8, 900000)) throw fail(429, 'Muitas tentativas de entrada. Aguarde 15 minutos.');
     let session;
@@ -102,6 +103,15 @@ export async function buildApp({ provider, origin, sessionKey, secure = true, au
     item.exemplos=fila.filter(x=>x.pauta.status==='aprovada'&&x.rascunho?.texto_site?.trim()).sort((a,b)=>Number(b.pauta.categoria===p.categoria)-Number(a.pauta.categoria===p.categoria)||String(b.aprovacao?.criada_em||b.pauta.atualizada_em).localeCompare(String(a.aprovacao?.criada_em||a.pauta.atualizada_em))).slice(0,3).map(x=>({titulo:x.rascunho.titulo_editorial,texto:x.rascunho.texto_site}));
     const result=sanitize(await headlineGenerator(item),secrets);
     await rpc(req,reply,'tn_comando',{...args,acao:'nota',revisao_esperada:started.pauta.revisao_registro,dados:{},nota:'Sugestões de IA, não conferidas; nenhum título alterado. '+JSON.stringify(result)});
+    return result;
+  });
+  app.post('/api/v1/voice/command', {schema:{headers:roomHeaders,body:{type:'object',additionalProperties:false,required:['audio_base64','mime_type'],properties:{audio_base64:{type:'string',minLength:4,maxLength:9500000},mime_type:{type:'string',minLength:7,maxLength:100}}}}}, async(req,reply)=>{
+    const context=await rpc(req,reply,'tn_contexto');
+    const membership=context.redacoes?.find(r=>r.id===req.headers['x-redacao-id']);
+    if(!membership)throw fail(403,'Você não pertence a esta redação.');
+    if(!limiter.take('voice:'+context.id,20,3600000))throw fail(429,'Limite de vinte comandos de voz por hora. Aguarde antes de tentar novamente.');
+    const result=sanitize(await voiceInterpreter({audioBase64:req.body.audio_base64,mimeType:req.body.mime_type}),secrets);
+    await rpc(req,reply,'tn_registrar_comando_voz',{redacao_id:req.headers['x-redacao-id'],transcricao:result.transcricao,intencao:result.intencao,argumentos:result.argumentos,modelo:result.modelo||null});
     return result;
   });
   app.get('/api/v1/eventos', { schema: { headers: roomHeaders, params: roomParams } }, (req, reply) => rpc(req, reply, 'tn_consultar', { redacao_id: req.headers['x-redacao-id'], recurso: 'eventos' }));
