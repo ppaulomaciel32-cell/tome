@@ -55,6 +55,12 @@ test('pauta e revisão chegam à RPC com JWT do usuário; papel vindo do formul�
  const res=await f.app.inject({method:'PATCH',url:`/api/v1/pautas/${p}/conteudo`,headers:{origin,cookie:f.cookie(login),'x-redacao-id':r},payload:{dados:{titulo:'Título de teste'},nota:'Corrigir título',revisao_esperada:7,papel:'editor_chefe'}});
  assert.equal(res.statusCode,200);const call=f.calls.at(-1);assert.equal(call.token,rawSession.access_token);assert.deepEqual(call.args,{redacao_id:r,pauta_id:p,acao:'editar',revisao_esperada:7,dados:{titulo:'Título de teste'},nota:'Corrigir título'});
 });
+test('modo Gestão usa a redação da sessão e registra justificativa',async t=>{
+ const f=await fixture();t.after(()=>f.app.close());const login=await f.login(),headers={origin,cookie:f.cookie(login),'x-redacao-id':r};
+ const list=await f.app.inject({url:'/api/v1/gestao',headers});assert.equal(list.statusCode,200);assert.equal(f.calls.at(-1).name,'tn_painel_gestao');
+ const created=await f.app.inject({method:'POST',url:'/api/v1/gestao/tarefas',headers,payload:{dados:{titulo:'Preparar briefing',categoria:'Prioridade'},nota:'Organizar a operação de hoje'}});assert.equal(created.statusCode,200);assert.deepEqual(f.calls.at(-1).args,{redacao_id:r,tarefa_id:null,acao:'criar',dados:{titulo:'Preparar briefing',categoria:'Prioridade'},nota:'Organizar a operação de hoje'});
+ const changed=await f.app.inject({method:'POST',url:`/api/v1/gestao/tarefas/${p}/concluir`,headers,payload:{nota:'Entrega revisada e concluída'}});assert.equal(changed.statusCode,200);assert.equal(f.calls.at(-1).args.acao,'concluir');
+});
 test('API mantém recusa de aprovação pelo banco e conflito de versão',async t=>{
  const f=await fixture({rpc:async(token,name,args)=>{if(['tn_contexto','tn_ativar_acesso'].includes(name))return context;throw Object.assign(Error('Acesso não autorizado para esta ação.'),{code:args.acao==='aprovar'?'42501':'40001'})}});t.after(()=>f.app.close());const login=await f.login();
  for(const [acao,status]of[['aprovar',403],['notas',409]]){const res=await f.app.inject({method:'POST',url:`/api/v1/pautas/${p}/${acao}`,headers:{origin,cookie:f.cookie(login),'x-redacao-id':r},payload:{nota:'Tentativa de teste',revisao_esperada:1}});assert.equal(res.statusCode,status)}
