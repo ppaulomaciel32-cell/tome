@@ -6,6 +6,7 @@ import '@fontsource/plus-jakarta-sans/700.css';
 import './style.css';
 import Dashboard from './dashboard.jsx';
 import Management from './management.jsx';
+import { draftForView, requestJSON } from './client-state.mjs';
 
 const labels = {apurar:'Em apuração',revisar:'Revisar texto',aprovada:'Aprovada',descartada:'Descartada'};
 const roles = {editor_chefe:'Editor-chefe',redator:'Redator',leitor:'Leitor'};
@@ -26,12 +27,12 @@ function App() {
  useEffect(()=>{document.documentElement.dataset.theme=theme;try{localStorage.setItem('radar-theme',theme)}catch{}},[theme]);
  useEffect(()=>{const fn=e=>{if(dirty){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',fn);return()=>window.removeEventListener('beforeunload',fn)},[dirty]);
  async function request(path,body,method=body?'POST':'GET') {
-  const response=await fetch('/api/v1'+path,{method,credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{}),...(room?{'X-Redacao-ID':room}:{})},body:body?JSON.stringify(body):undefined});
-  const data=await response.json();if(!response.ok){if(response.status===401){setUser(null);setQueue([]);}throw new Error(data.erro||'Não foi possível concluir a operação.');}return data;
+  try{return await requestJSON('/api/v1'+path,{method,credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{}),...(room?{'X-Redacao-ID':room}:{})},body:body?JSON.stringify(body):undefined},fetch,path.startsWith('/voice/')||path.startsWith('/headlines/')?90000:30000);}
+  catch(error){if(error.status===401){setUser(null);setRoom('');setQueue([]);choose(null);}throw error;}
  }
  const run=async task=>{setBusy(true);setMessage('');try{await task()}catch(e){setMessage(e.message||'Falha de conexão. Tente novamente.')}finally{setBusy(false)}};
  useEffect(()=>{request('/auth/me').then(d=>{setUser(d.usuario);setRoom(d.usuario.redacoes[0].id)}).catch(()=>{}).finally(()=>setLoading(false))},[]);
- function choose(item){setHeadlines(null);setSelected(item?.pauta.id||null);setEditor(item?{...item.pauta,rascunho:structuredClone(item.rascunho)}:null);setNote('');setChecked(false);setSensitive(false);setDirty(false)}
+ function choose(item){setHeadlines(null);setSelected(item?.pauta.id||null);setEditor(item?{...item.pauta,rascunho:draftForView(item.rascunho)}:null);setNote('');setChecked(false);setSensitive(false);setDirty(false)}
  async function refresh(id=selected) {const data=await request('/pautas');setQueue(data);choose(data.find(x=>x.pauta.id===id)||data[0]);}
  useEffect(()=>{if(room&&user)run(()=>refresh())},[room]);
  async function login(e){e.preventDefault();await run(async()=>{const data=await request('/auth/login',{email,password});setPassword('');setUser(data.usuario);setRoom(data.usuario.redacoes[0].id);setMessage('Acesso confirmado.');})}
@@ -65,7 +66,7 @@ function App() {
    recorder.start();setRecording(true);setMessage('Ouvindo… fale o comando e clique novamente para enviar.');voiceTimerRef.current=setTimeout(()=>recorder.state==='recording'&&recorder.stop(),30000);
   }catch{setMessage('Permita o uso do microfone no navegador para usar comandos de voz.');}
  }
- async function copy(){if(dirty)return setMessage('Salve o pacote antes de copiar.');const p=current.pauta,d=current.rascunho;const text=`${p.codigo} v${p.versao}\n${labels[p.status]}\n\n${d.titulo_editorial}\n\nSITE\n${d.texto_site}\n\nINSTAGRAM\n${d.instagram}\n\nSTORIES\n${d.stories.join('\n\n')}\n\nFONTE\n${p.url_fonte}\n\nNOTA\n${p.nota_apuracao}`;try{await navigator.clipboard.writeText(text);setMessage('Pacote salvo copiado.')}catch{download(text,'Pacote-Tome-Nota.txt')}}
+ async function copy(){if(!current?.rascunho)return setMessage('Este candidato ainda não tem pacote salvo. Abra a fonte e apure antes de redigir.');if(dirty)return setMessage('Salve o pacote antes de copiar.');const p=current.pauta,d=current.rascunho;const text=`${p.codigo} v${p.versao}\n${labels[p.status]}\n\n${d.titulo_editorial}\n\nSITE\n${d.texto_site}\n\nINSTAGRAM\n${d.instagram}\n\nSTORIES\n${d.stories.join('\n\n')}\n\nFONTE\n${p.url_fonte}\n\nNOTA\n${p.nota_apuracao}`;try{await navigator.clipboard.writeText(text);setMessage('Pacote salvo copiado.')}catch{download(text,'Pacote-Tome-Nota.txt')}}
  return <><header><div className="brand"><b className="mark">TN<span>•</span></b><div>TOME NOTA<small>CENTRAL DA REDAÇÃO</small></div></div><div className="header-actions">{user&&<button className={recording?'voice recording':'voice'} disabled={busy} aria-pressed={recording} onClick={voice}>{recording?'■ Enviar voz':'● Comando de voz'}</button>}<button aria-label="Alternar tema" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'Modo escuro':'Modo claro'}</button>{user&&<button onClick={()=>{if(dirty)return setMessage('Salve a pauta antes de sair.');run(async()=>{await request('/auth/logout',{});setUser(null);setRoom('');setQueue([]);choose(null)})}}>Sair</button>}</div></header>
  <main>{message&&<div role="status" className="feedback">{message}<button aria-label="Fechar aviso" onClick={()=>setMessage('')}>×</button></div>}
  {loading?<p>Verificando acesso…</p>:!user?<div className="login-layout"><div><p className="eyebrow">CEARÁ · JORNALISMO LOCAL</p><h1>O que merece<br/>virar notícia.</h1><p className="lead">Fontes, evidências e decisões.<br/>Uma mesa de trabalho para toda a redação.</p><p className="footnote">São Gonçalo do Amarante · Pecém · Taíba · Siupé<br/>Paracuru · Paraipaba · Caucaia</p></div><form className="panel login" onSubmit={login}><p className="eyebrow">RADAR TOME NOTA</p><h2>Entrar na redação</h2><p className="muted">Use sua conta cadastrada para acessar a fila compartilhada.</p><Field label="E-mail" type="email" value={email} onChange={setEmail} autoComplete="username" required/><Field label="Senha" type="password" value={password} onChange={setPassword} autoComplete="current-password" required/><button className="primary full" disabled={busy}>Entrar</button><p className="footnote">O acesso é liberado pelo editor-chefe.</p></form></div>:<><div className="top"><div><p className="eyebrow">{member?.nome} · {roles[member?.papel]}</p><h1>O que merece virar notícia.</h1><p className="muted">Fila compartilhada · evidência antes da decisão</p></div>{canWrite&&<button className="primary" disabled={busy} onClick={newItem}>+ Adicionar pauta</button>}</div>

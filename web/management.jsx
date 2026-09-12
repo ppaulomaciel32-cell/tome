@@ -6,13 +6,19 @@ const ptDate=value=>value?new Date(value+'T12:00:00').toLocaleDateString('pt-BR'
 
 export default function Management({request,run,busy,canWrite,setMessage}){
  const [data,setData]=useState(null),[form,setForm]=useState({titulo:'',categoria:'Prioridade',frente:'grupo',cliente:'',prazo:'',prioridade:true}),[note,setNote]=useState('');
- const load=async()=>setData(await request('/gestao'));
+ const [loadError,setLoadError]=useState(''),[loaded,setLoaded]=useState(false),[decision,setDecision]=useState(null),[reason,setReason]=useState('');
+ const load=async()=>{setLoadError('');try{setData(await request('/gestao'));setLoaded(true)}catch(error){setLoadError(error.message);throw error}};
  useEffect(()=>{run(load)},[]);
- const tasks=data?.tarefas||[],today=new Date().toISOString().slice(0,10);
+ const tasks=data?.tarefas||[],today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const briefing=useMemo(()=>tasks.filter(t=>t.status==='pendente').sort((a,b)=>Number(b.prioridade)-Number(a.prioridade)||String(a.prazo||'9999').localeCompare(String(b.prazo||'9999'))).slice(0,3),[tasks]);
  async function create(e){e.preventDefault();if(!note.trim())return setMessage('Explique por que esta tarefa entrou na rotina.');await run(async()=>{await request('/gestao/tarefas',{dados:form,nota:note});setForm({titulo:'',categoria:'Prioridade',frente:'grupo',cliente:'',prazo:'',prioridade:true});setNote('');await load();setMessage('Tarefa compartilhada registrada.')})}
- async function change(task,action){const reason=prompt(`Justificativa para ${action} a tarefa “${task.titulo}”:`);if(!reason?.trim())return setMessage('A ação foi cancelada: toda decisão precisa de justificativa.');await run(async()=>{await request(`/gestao/tarefas/${task.id}/${action}`,{nota:reason});await load();setMessage('Decisão registrada com autor, horário e snapshot.')})}
+ function change(task,action){setDecision({task,action});setReason('')}
+ async function saveDecision(e){e.preventDefault();if(reason.trim().length<3)return;await run(async()=>{await request(`/gestao/tarefas/${decision.task.id}/${decision.action}`,{nota:reason});setDecision(null);await load();setMessage('Decisão registrada com autor, horário e snapshot.')})}
+ if(!loaded)return <section className="panel" role="status"><h2>{loadError?'Não foi possível carregar a Gestão':'Carregando a Gestão…'}</h2><p>{loadError||'Consultando tarefas no servidor. Isso não indica ausência de tarefas.'}</p>{loadError&&<button disabled={busy} onClick={()=>run(load)}>Tentar carregar novamente</button>}</section>;
  return <div className="management">
+  {loadError&&<div role="alert" className="feedback">{loadError} Os dados abaixo são da última consulta bem-sucedida.</div>}
+  <p className="footnote">Tarefas compartilhadas · automação de gestão e WhatsApp ainda não conectados. Agente configurado não significa agente em execução.</p>
+  {decision&&<form className="panel" onSubmit={saveDecision}><h2>{decision.action}: {decision.task.titulo}</h2><label>Motivo da decisão<textarea required minLength={3} value={reason} onChange={e=>setReason(e.target.value)}/></label><button disabled={busy} className="primary">Registrar decisão</button> <button type="button" disabled={busy} onClick={()=>setDecision(null)}>Cancelar</button></form>}
   <section className="management-hero"><div><p className="eyebrow">COO DIGITAL · MODO GESTÃO</p><h1>Operação com dado real,<br/>não demonstração.</h1><p>Briefing, prioridades e decisões compartilhadas pela equipe.</p></div><div className={'agent-status '+(data?.agente?.ativo?'online':'offline')}><span></span><strong>{data?.agente?.ativo?'Agente configurado':'Agente indisponível'}</strong><small>{data?.agente?`v${data.agente.versao} · atualizado ${new Date(data.agente.atualizado_em).toLocaleString('pt-BR')}`:'Configuração não encontrada'}</small></div></section>
   <section className="management-grid">
    <article className="panel management-brief"><p className="eyebrow">BRIEFING DA SESSÃO</p><h2>Até 3 prioridades</h2>{briefing.length?briefing.map((t,i)=><div className="brief-row" key={t.id}><b>0{i+1}</b><div><strong>{t.titulo}</strong><small>{t.categoria} · {fronts[t.frente]} · {ptDate(t.prazo)}</small></div></div>):<div className="empty"><h3>Nenhuma prioridade cadastrada.</h3><p>O painel não inventa tarefas. Registre abaixo o que precisa entrar no briefing.</p></div>}
