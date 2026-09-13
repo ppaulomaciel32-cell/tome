@@ -34,7 +34,18 @@ begin
  begin perform public.tn_painel_agentes(other_r);raise exception 'Acessou outra redação';exception when sqlstate '42501' then null;end;
  begin perform public.tn_ingerir_candidato_automatico(r,f,'https://teste.invalid/3','https://teste.invalid/3','Teste','teste',current_date,raw,radar_internal.hash_texto('x'),radar_internal.hash_texto('y'),'Pecém','Emprego');raise exception 'Usuário chamou ingestão';exception when sqlstate '42501' then null;end;
  execute 'reset role';
- return checks||jsonb_build_array('Execuções e atribuições imutáveis','Leitor consulta; acesso a outra redação e ingestão interna recusados','Consumo: zero tokens e chamadas, infraestrutura sem valor inventado');
+ update radar.membros_redacao set papel='redator' where redacao_id=r and usuario_id=u;
+ update radar.agentes_monitoramento set revisao_sensivel=true where redacao_id=r and numero=2;
+ execute 'set local role authenticated';
+ begin
+  perform public.tn_comando(r,p,'conferir_evidencia',1,'{"confirmacao_humana":true}','Conferência de teste sem marcação sensível.');
+  raise exception 'Dispensou revisão sensível do agente';
+ exception when sqlstate '22023' then if sqlerrm not like 'Assunto sensível%' then raise;end if;
+ end;
+ result:=public.tn_comando(r,p,'conferir_evidencia',1,'{"confirmacao_humana":true,"revisao_sensivel":true}','Conferência de teste incluindo revisão sensível.');
+ if result->'conferencia_evidencia'='null'::jsonb then raise exception 'Não registrou conferência sensível';end if;
+ execute 'reset role';
+ return checks||jsonb_build_array('Execuções e atribuições imutáveis','Leitor consulta; acesso a outra redação e ingestão interna recusados','Consumo: zero tokens e chamadas, infraestrutura sem valor inventado','Classificação sensível do agente exige revisão específica no servidor');
 end $$;
 select pg_temp.test_agents() as testes;
 rollback;

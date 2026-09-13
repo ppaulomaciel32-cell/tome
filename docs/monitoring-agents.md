@@ -18,6 +18,8 @@ continuam pendentes; a fonte SAPL inicia a cobertura legislativa documental.
 - `eventos` inclui `agente_atribuido`, seguido pelo evento original `coleta_automatica`.
   Snapshots posteriores passam a incluir a atribuição; os antigos não são reescritos.
 - Nenhum candidato recebe rascunho, conferência, aprovação ou publicação automática.
+  Agentes sensíveis também exigem revisão específica na conferência, independentemente
+  do texto da categoria da fonte (migration `agent_sensitive_review`).
 - Candidatos anteriores não são retroativamente apresentados como trabalho dos agentes.
 
 ## Consulta
@@ -52,7 +54,8 @@ deve efetivamente chamar o provedor e registrar consumo e preço aplicável.
 
 ## Implantação e verificação
 
-1. Aplicar `database/monitoring-agents.sql` (migration `monitoring_agents_first_flow`).
+1. Aplicar `database/monitoring-agents.sql` (migration `monitoring_agents_first_flow`),
+   `database/agent-sensitive-review.sql` e `database/collector-run-timing.sql`.
 2. Implantar `supabase/functions/radar-coletor/index.ts`, `sapl.mjs` e `robots.mjs`, com JWT ativado.
 3. Aplicar `database/monitoring-sapl-source.sql`; o agendador existente recolhe a fonte.
 4. Compilar e implantar o app. Não é preciso manter o navegador aberto para coletar.
