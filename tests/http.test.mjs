@@ -61,6 +61,13 @@ test('modo Gestão usa a redação da sessão e registra justificativa',async t=
  const created=await f.app.inject({method:'POST',url:'/api/v1/gestao/tarefas',headers,payload:{dados:{titulo:'Preparar briefing',categoria:'Prioridade'},nota:'Organizar a operação de hoje'}});assert.equal(created.statusCode,200);assert.deepEqual(f.calls.at(-1).args,{redacao_id:r,tarefa_id:null,acao:'criar',dados:{titulo:'Preparar briefing',categoria:'Prioridade'},nota:'Organizar a operação de hoje'});
  const changed=await f.app.inject({method:'POST',url:`/api/v1/gestao/tarefas/${p}/concluir`,headers,payload:{nota:'Entrega revisada e concluída'}});assert.equal(changed.statusCode,200);assert.equal(f.calls.at(-1).args.acao,'concluir');
 });
+test('painel de agentes exige sessão e usa a redação validada pelo banco',async t=>{
+ const f=await fixture();t.after(()=>f.app.close());
+ assert.equal((await f.app.inject({url:'/api/v1/agentes',headers:{'x-redacao-id':r}})).statusCode,401);
+ const login=await f.login();
+ assert.equal((await f.app.inject({url:'/api/v1/agentes',headers:{cookie:f.cookie(login),'x-redacao-id':r}})).statusCode,200);
+ assert.equal(f.calls.at(-1).name,'tn_painel_agentes');assert.deepEqual(f.calls.at(-1).args,{redacao_id:r});
+});
 test('API mantém recusa de aprovação pelo banco e conflito de versão',async t=>{
  const f=await fixture({rpc:async(token,name,args)=>{if(['tn_contexto','tn_ativar_acesso'].includes(name))return context;throw Object.assign(Error('Acesso não autorizado para esta ação.'),{code:args.acao==='aprovar'?'42501':'40001'})}});t.after(()=>f.app.close());const login=await f.login();
  for(const [acao,status]of[['aprovar',403],['notas',409]]){const res=await f.app.inject({method:'POST',url:`/api/v1/pautas/${p}/${acao}`,headers:{origin,cookie:f.cookie(login),'x-redacao-id':r},payload:{nota:'Tentativa de teste',revisao_esperada:1}});assert.equal(res.statusCode,status)}
