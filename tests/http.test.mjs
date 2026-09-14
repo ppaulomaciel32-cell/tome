@@ -94,3 +94,11 @@ test('renova acesso perto do vencimento sem expor tokens',async t=>{
 test('tentativas de login são limitadas no servidor',async t=>{
  const f=await fixture({login:async()=>{throw Error('Falha fictícia')}});t.after(()=>f.app.close());for(let i=0;i<8;i++)assert.equal((await f.login()).statusCode,401);assert.equal((await f.login()).statusCode,429);
 });
+
+test('dashboard usa sessão, redação e RPC de operação',async t=>{
+ const f=await fixture();t.after(()=>f.app.close());
+ assert.equal((await f.app.inject({url:'/api/v1/dashboard',headers:{'x-redacao-id':r}})).statusCode,401);
+ const login=await f.login();
+ assert.equal((await f.app.inject({url:'/api/v1/dashboard',headers:{cookie:f.cookie(login),'x-redacao-id':r}})).statusCode,200);
+ assert.equal(f.calls.at(-1).name,'tn_painel_operacao');assert.deepEqual(f.calls.at(-1).args,{redacao_id:r});
+});
