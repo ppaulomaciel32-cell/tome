@@ -1,0 +1,12 @@
+{
+  "name": "Tome Nota News",
+  "short_name": "Tome Nota",
+  "description": "Notícias de São Gonçalo do Amarante e região.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f4ef",
+  "theme_color": "#0b1f36",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
