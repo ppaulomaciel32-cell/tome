@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ppaulomaciel32-cell.github.io/tome/sitemap.xml
