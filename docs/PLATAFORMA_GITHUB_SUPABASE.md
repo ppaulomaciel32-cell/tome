@@ -1,16 +1,16 @@
-# Tome Nota News — GitHub Pages + Supabase
+# Tome Nota News — Render + Supabase
 
-Esta edição pública substitui a instalação WordPress do ZIP por uma página estática no GitHub Pages e uma tabela somente de leitura no projeto Supabase gratuito já conectado. O repositório do Radar Tome Nota e o schema privado radar permanecem separados.
+Esta edição pública substitui a instalação WordPress do ZIP por uma página estática no Render e uma tabela somente de leitura no projeto Supabase já conectado. O repositório do Radar Tome Nota e o schema privado radar permanecem separados.
 
 ## Publicação
 
-- Site: https://ppaulomaciel32-cell.github.io/tome/
-- Arquivos do site: public-site/
+- Site: https://tome-nota-publico.onrender.com
+- Hospedagem: Render Static Site, ligado à branch public-site-github-supabase
+- Arquivos publicados: public-site/
 - Tabela pública: public.tomenota_publications
-- Workflow: .github/workflows/public-site.yml
 - SQL: database/tomenota_public_site.sql
 
-O workflow publica public-site/ com GitHub Actions. A fonte do GitHub Pages precisa estar como GitHub Actions no repositório. O endereço só fica disponível depois da primeira publicação concluída.
+O Render faz deploy automático quando há atualizações na branch conectada.
 
 ## Publicar uma matéria
 
@@ -26,7 +26,7 @@ Para manter a matéria fora do site, use status = 'draft' e deixe published_at n
 
 ## Limites desta adaptação
 
-- GitHub Pages serve HTML, CSS e JavaScript. Ele não executa o PHP nem instala o tema ou plugin WordPress do ZIP.
+- O site estático serve HTML, CSS e JavaScript. Ele não executa o PHP nem instala o tema ou plugin WordPress do ZIP.
 - Esta primeira versão cobre a página pública de notícias, busca, filtro por cidade e editoria, leitura de matéria, compartilhamento manual e instalação PWA.
 - Não há painel editorial web, login de leitor, envio de fotos, vagas com validade, pesquisas eleitorais, anúncios, Café diário ou moderação de contribuições nesta adaptação. Esses recursos continuam no ZIP WordPress.
 - As matérias devem ser aprovadas e inseridas no Supabase pela redação. Conteúdo de apuração no schema radar não é usado nem exposto no site.
@@ -34,4 +34,4 @@ Para manter a matéria fora do site, use status = 'draft' e deixe published_at n
 
 ## Custo
 
-O site usa o plano gratuito existente do GitHub e o projeto Supabase já conectado. Não há coleta pública de dados: o navegador só lê matérias aprovadas e pode guardar os arquivos estáticos no cache local do PWA.
+O site está em Render Static Sites, que não tem custo de hospedagem, e usa o projeto Supabase já conectado. Não há coleta pública de dados: o navegador só lê matérias aprovadas e pode guardar os arquivos estáticos no cache local do PWA.
