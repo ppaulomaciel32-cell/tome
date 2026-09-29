@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1f36">
+  <meta name="description" content="Notícias de São Gonçalo do Amarante, Pecém, Taíba, Paracuru e região.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Tome Nota News — Notícias da nossa região">
+  <meta property="og:description" content="Acompanhe as notícias de São Gonçalo do Amarante e região.">
+  <meta property="og:url" content="https://ppaulomaciel32-cell.github.io/tome/">
+  <meta property="og:image" content="https://ppaulomaciel32-cell.github.io/tome/icon.svg">
+  <link rel="canonical" href="https://ppaulomaciel32-cell.github.io/tome/">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Tome Nota News — Notícias da nossa região</title>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  <div class="topline">
+    <div class="wrap topline-inner">
+      <span>Jornalismo local, perto de você</span>
+      <span class="topline-region">São Gonçalo do Amarante · Ceará</span>
+    </div>
+  </div>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="./" aria-label="Tome Nota News, página inicial">
+        <span class="brand-mark" aria-hidden="true">tn</span>
+        <span class="brand-copy"><strong>TOME NOTA</strong><small>NEWS · CEARÁ</small></span>
+      </a>
+      <nav class="main-nav" aria-label="Navegação principal">
+        <a href="#ultimas">Notícias</a><a href="#regiao">Nossa região</a><a href="#sobre">Sobre</a>
+      </nav>
+      <a class="follow-link" href="https://www.instagram.com/tomenotanews/" target="_blank" rel="noopener noreferrer">Acompanhe <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main id="conteudo">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot"></span> Informação local, todos os dias</p>
+        <h1 id="hero-title">O que acontece<br><em>perto de você.</em></h1>
+        <p class="hero-text">Notícias, histórias e serviço para quem vive em São Gonçalo do Amarante e nos municípios vizinhos.</p>
+        <a class="primary-button" href="#ultimas">Ver últimas notícias <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="hero-art" aria-label="Ilustração abstrata da região costeira">
+        <div class="art-sun"></div><div class="art-orbit"></div><div class="art-wave wave-one"></div><div class="art-wave wave-two"></div>
+        <span class="art-label label-pecem">PECÉM</span><span class="art-label label-taiba">TAÍBA</span>
+        <span class="art-label label-sga">SÃO GONÇALO<br>DO AMARANTE</span><span class="art-coordinate">03° 36' S&nbsp; 38° 58' W</span>
+      </div>
+    </section>
+    <section class="region-strip" id="regiao" aria-label="Regiões cobertas">
+      <div class="wrap region-strip-inner">
+        <span class="region-label">Nossa região</span>
+        <p>São Gonçalo do Amarante <b>·</b> Pecém <b>·</b> Taíba <b>·</b> Croatá <b>·</b> Siupé <b>·</b> Paracuru <b>·</b> Caucaia</p>
+      </div>
+    </section>
+    <section class="wrap news-section" id="ultimas" aria-labelledby="news-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Acompanhe a região</p><h2 id="news-title">Últimas notícias</h2></div>
+        <span id="result-count" class="result-count" aria-live="polite"></span>
+      </div>
+      <div class="filters" aria-label="Filtros de notícias">
+        <label class="search-box"><span class="sr-only">Buscar notícia</span><span aria-hidden="true" class="search-icon">⌕</span><input id="search" type="search" placeholder="Buscar notícia..." autocomplete="off"></label>
+        <label class="select-wrap"><span class="sr-only">Filtrar por município</span><select id="city-filter"><option value="">Todas as cidades</option></select></label>
+        <label class="select-wrap"><span class="sr-only">Filtrar por editoria</span><select id="section-filter"><option value="">Todas as editorias</option><option value="noticias">Notícias</option><option value="vagas">Vagas</option><option value="comunidade">Comunidade</option><option value="eleicoes">Eleições</option><option value="servicos">Serviços</option></select></label>
+      </div>
+      <div id="status-message" class="status-message" role="status">Carregando notícias…</div>
+      <div id="news-grid" class="news-grid" aria-live="polite"></div>
+    </section>
+    <section class="community-band">
+      <div class="wrap community-inner">
+        <div><p class="eyebrow">A notícia também é sua</p><h2>Tem uma pauta da sua comunidade?</h2><p>Envie sua sugestão para a redação. Todo conteúdo passa por apuração e revisão antes de ser publicado.</p></div>
+        <a class="light-button" href="https://www.instagram.com/tomenotanews/" target="_blank" rel="noopener noreferrer">Fale com a redação <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+    <section class="wrap about-section" id="sobre">
+      <div class="about-number">01 <span>/ SOBRE</span></div>
+      <div class="about-copy"><p class="eyebrow">Feito aqui, para quem vive aqui</p><h2>O Tome Nota acompanha o que importa para a nossa gente.</h2><p>Somos um veículo regional com cobertura de São Gonçalo do Amarante, Pecém, Taíba e municípios próximos. Nosso compromisso é informar com clareza, ouvir a comunidade e revisar cada pauta antes da publicação.</p></div>
+      <a class="about-instagram" href="https://www.instagram.com/tomenotanews/" target="_blank" rel="noopener noreferrer">@tomenotanews <span aria-hidden="true">↗</span></a>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <a class="brand footer-brand" href="./"><span class="brand-mark" aria-hidden="true">tn</span><span class="brand-copy"><strong>TOME NOTA</strong><small>NEWS · CEARÁ</small></span></a>
+      <p>Notícia local. Informação responsável.</p><span class="footer-copy">© <span id="year"></span> Tome Nota News</span>
+    </div>
+    <div class="wrap footer-bottom"><span>São Gonçalo do Amarante · Ceará</span><span>Sem rastreadores ou anúncios personalizados.</span></div>
+  </footer>
+</body>
+</html>
