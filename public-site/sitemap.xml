@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://tome-nota-publico.onrender.com/</loc></url>
+  <url><loc>https://tome-nota-publico.onrender.com/politica-de-privacidade.html</loc></url>
+  <url><loc>https://tome-nota-publico.onrender.com/termos-de-uso.html</loc></url>
+  <url><loc>https://tome-nota-publico.onrender.com/sobre.html</loc></url>
+  <url><loc>https://tome-nota-publico.onrender.com/contato.html</loc></url>
+  <url><loc>https://tome-nota-publico.onrender.com/politica-de-cookies.html</loc></url>
+  <!-- Adicione notícias publicadas, escapando & como &amp;:
+  <url><loc>https://tome-nota-publico.onrender.com/noticia.html?slug=SLUG-DA-NOTICIA</loc><lastmod>AAAA-MM-DD</lastmod></url>
+  -->
 </urlset>
+

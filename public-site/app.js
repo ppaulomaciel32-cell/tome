@@ -1,169 +1,180 @@
 (() => {
   "use strict";
-  const SUPABASE_URL = "https://dfbeerxqqfqkwlljrjko.supabase.co";
-  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_5EXohJOdj_5I1nW9ahgdDg_f5ZHiHhj";
-  const TABLE_URL = SUPABASE_URL + "/rest/v1/tomenota_publications";
+  const config = window.TNN_CONFIG;
+  const table = config.supabaseUrl + "/rest/v1/tomenota_publications";
+  // PostgREST aliases preserve the existing schema and its RLS policies.
+  const publicFields = "id,titulo:title,resumo:summary,capa:cover_url,slug,publicado_em:published_at";
   const grid = document.getElementById("news-grid");
   const status = document.getElementById("status-message");
   const search = document.getElementById("search");
-  const cityFilter = document.getElementById("city-filter");
-  const sectionFilter = document.getElementById("section-filter");
   const count = document.getElementById("result-count");
+  const more = document.getElementById("load-more");
+  const slug = new URLSearchParams(location.search).get("slug") || new URLSearchParams(location.search).get("noticia");
   let publications = [];
-
-  document.getElementById("year").textContent = String(new Date().getFullYear());
+  let offset = 0;
+  let loading = false;
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
   }
-  function showStatus(message, isError) {
-    status.textContent = message;
-    status.classList.toggle("visible", Boolean(message));
-    status.classList.toggle("error", Boolean(isError));
-  }
-  function formatDate(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.valueOf())) return "";
-    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeZone: "America/Fortaleza" }).format(date);
-  }
-  function sectionName(value) {
-    const names = { noticias: "Notícia", vagas: "Vaga", comunidade: "Comunidade", eleicoes: "Eleições", servicos: "Serviços" };
-    return names[value] || "Notícia";
-  }
-  function articleUrl(publication) {
-    const url = new URL(window.location.href);
-    url.search = "";
-    url.searchParams.set("noticia", publication.slug);
-    url.hash = "";
+  function articleUrl(item) {
+    const url = new URL("/noticia.html", config.siteUrl);
+    url.searchParams.set("slug", item.slug);
     return url.href;
   }
-  function safeImageUrl(value) {
-    if (!value) return "";
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" ? url.href : "";
-    } catch { return ""; }
+  function imageUrl(value) {
+    try { const url = new URL(value); return url.protocol === "https:" ? url.href : ""; } catch { return ""; }
   }
-  function renderCard(publication) {
-    const card = el("article", "news-card");
-    const link = el("a", "card-link");
-    link.href = articleUrl(publication);
-    const imageUrl = safeImageUrl(publication.cover_url);
-    if (imageUrl) {
-      const image = el("img", "card-image");
-      image.src = imageUrl;
-      image.alt = "";
-      image.loading = "lazy";
-      image.decoding = "async";
-      link.append(image);
-    } else {
-      const placeholder = el("div", "card-placeholder", "tn");
-      placeholder.setAttribute("aria-hidden", "true");
-      link.append(placeholder);
-    }
-    const body = el("div", "card-body");
-    const meta = el("div", "card-meta");
-    meta.append(el("span", "card-section", sectionName(publication.section)));
-    meta.append(el("span", "meta-dot"));
-    meta.append(el("time", "", formatDate(publication.published_at)));
-    body.append(meta);
-    body.append(el("h3", "card-title", publication.title));
-    if (publication.summary) body.append(el("p", "card-summary", publication.summary));
-    if (publication.city) body.append(el("span", "card-city", publication.city));
-    link.append(body);
-    card.append(link);
-    return card;
+  function dateText(value) {
+    const date = new Date(value);
+    return value && !Number.isNaN(date.valueOf()) ?
+      new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone: "America/Fortaleza" }).format(date) : "";
+  }
+  function adSlot() {
+    const aside = el("aside", "ad-space ad-in-article");
+    aside.setAttribute("aria-label", "Publicidade no meio do artigo");
+    aside.append(el("span", "ad-label", "Publicidade"));
+    const ins = el("ins", "adsbygoogle");
+    ins.style.display = "block";
+    ins.dataset.adClient = config.adClient;
+    // ADSENSE PLACEHOLDER: substitute this in-article slot ID.
+    ins.dataset.adSlot = "0000000000";
+    ins.dataset.adLayout = "in-article";
+    ins.dataset.adFormat = "fluid";
+    aside.append(ins);
+    return aside;
+  }
+  async function request(query) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(table + "?" + query, {
+        headers: { apikey: config.supabaseAnonKey, Authorization: "Bearer " + config.supabaseAnonKey, Accept: "application/json" },
+        cache: "no-store", signal: controller.signal
+      });
+      if (!response.ok) throw new Error("Publications unavailable");
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error("Invalid response");
+      return data;
+    } finally { clearTimeout(timer); }
   }
   function renderList() {
     const term = search.value.trim().toLocaleLowerCase("pt-BR");
-    const city = cityFilter.value;
-    const section = sectionFilter.value;
-    const visible = publications.filter((item) => {
-      const text = [item.title, item.summary, item.body, item.city, item.section].join(" ").toLocaleLowerCase("pt-BR");
-      return (!term || text.includes(term)) && (!city || item.city === city) && (!section || item.section === section);
-    });
+    const visible = publications.filter(item => [item.titulo, item.resumo].join(" ").toLocaleLowerCase("pt-BR").includes(term));
     grid.replaceChildren();
-    count.textContent = visible.length ? visible.length + (visible.length === 1 ? " matéria" : " matérias") : "";
+    count.textContent = visible.length + (visible.length === 1 ? " matéria" : " matérias");
     if (!visible.length) {
       const empty = el("div", "empty-state");
       empty.append(el("strong", "", publications.length ? "Nenhum resultado encontrado." : "A redação ainda não publicou notícias."));
-      empty.append(el("p", "", publications.length ? "Tente mudar os filtros ou fazer outra busca." : "Assim que uma matéria for aprovada pela redação, ela aparecerá nesta página."));
+      empty.append(el("p", "", publications.length ? "Tente outra busca." : "As matérias aprovadas aparecerão aqui."));
       grid.append(empty);
-      return;
     }
-    visible.forEach((publication) => grid.append(renderCard(publication)));
-  }
-  function renderArticle(publication) {
-    const main = document.querySelector("main");
-    main.replaceChildren();
-    const wrapper = el("article", "wrap article-view");
-    const back = el("a", "back-link", "← Todas as notícias");
-    back.href = window.location.pathname;
-    wrapper.append(back);
-    if (!publication) {
-      const notFound = el("div", "article-error");
-      notFound.append(el("h1", "", "Notícia não encontrada"));
-      notFound.append(el("p", "", "Ela pode ter sido removida ou ainda não está publicada."));
-      wrapper.append(notFound);
-      main.append(wrapper);
-      document.title = "Notícia não encontrada — Tome Nota News";
-      return;
-    }
-    wrapper.append(el("p", "eyebrow", sectionName(publication.section) + (publication.city ? " · " + publication.city : "")));
-    wrapper.append(el("h1", "", publication.title));
-    if (publication.summary) wrapper.append(el("p", "article-summary", publication.summary));
-    wrapper.append(el("p", "card-meta", formatDate(publication.published_at)));
-    const imageUrl = safeImageUrl(publication.cover_url);
-    if (imageUrl) {
-      const image = el("img", "article-cover");
-      image.src = imageUrl;
-      image.alt = "";
-      image.loading = "lazy";
-      wrapper.append(image);
-    }
-    wrapper.append(el("div", "article-body", publication.body || ""));
-    const share = el("a", "article-share", "Compartilhar no WhatsApp");
-    share.href = "https://wa.me/?text=" + encodeURIComponent(publication.title + " — " + articleUrl(publication));
-    share.target = "_blank";
-    share.rel = "noopener noreferrer";
-    wrapper.append(share);
-    main.append(wrapper);
-    document.title = publication.title + " — Tome Nota News";
-  }
-  function fillCities() {
-    const current = cityFilter.value;
-    cityFilter.replaceChildren(new Option("Todas as cidades", ""));
-    const cities = Array.from(new Set(publications.map((item) => item.city).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
-    cities.forEach((city) => cityFilter.add(new Option(city, city)));
-    if (cities.includes(current)) cityFilter.value = current;
-  }
-  async function fetchPublications() {
-    const query = new URLSearchParams({ select: "slug,title,summary,body,city,section,cover_url,published_at", order: "published_at.desc", limit: "60" });
-    const response = await fetch(TABLE_URL + "?" + query.toString(), {
-      headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: "Bearer " + SUPABASE_PUBLISHABLE_KEY, Accept: "application/json" },
-      cache: "no-store"
+    visible.forEach(item => {
+      const card = el("article", "news-card");
+      const link = el("a", "card-link");
+      link.href = "./noticia.html?slug=" + encodeURIComponent(item.slug);
+      const cover = imageUrl(item.capa);
+      if (cover) {
+        const image = el("img", "card-image");
+        image.src = cover; image.alt = item.titulo; image.loading = "lazy"; image.decoding = "async";
+        link.append(image);
+      }
+      const body = el("div", "card-body");
+      const time = el("time", "card-meta", dateText(item.publicado_em));
+      if (item.publicado_em) time.dateTime = item.publicado_em;
+      body.append(time, el("h3", "card-title", item.titulo), el("p", "card-summary", item.resumo));
+      link.append(body); card.append(link); grid.append(card);
     });
-    if (!response.ok) throw new Error("Não foi possível carregar as notícias.");
-    return response.json();
   }
-  async function start() {
-    search.addEventListener("input", renderList);
-    cityFilter.addEventListener("change", renderList);
-    sectionFilter.addEventListener("change", renderList);
-    try {
-      publications = await fetchPublications();
-      fillCities();
-      const slug = new URLSearchParams(window.location.search).get("noticia");
-      if (slug) renderArticle(publications.find((item) => item.slug === slug) || null);
-      else { showStatus("", false); renderList(); }
-    } catch {
-      showStatus("Não foi possível carregar o conteúdo agora. Tente novamente em instantes.", true);
-      grid.replaceChildren();
+  function meta(selector, content) { document.querySelector(selector)?.setAttribute("content", content); }
+  function articleMetadata(item) {
+    const url = articleUrl(item);
+    const cover = imageUrl(item.capa) || config.siteUrl + "/assets/images/og-tome-nota.png";
+    const title = item.titulo + " | Tome Nota News";
+    const description = item.resumo || item.titulo;
+    document.title = title;
+    document.querySelector('link[rel="canonical"]').href = url;
+    meta('meta[name="description"]', description);
+    for (const [key,value] of Object.entries({type:"article",title,description,url,image:cover,"image:alt":item.titulo})) meta('meta[property="og:' + key + '"]', value);
+    for (const [key,value] of Object.entries({title,description,image:cover})) meta('meta[name="twitter:' + key + '"]', value);
+    const schema = {
+      "@context": "https://schema.org", "@type": "NewsArticle",
+      headline: item.titulo, description, image: [cover],
+      author: { "@type": item.autor === "Tome Nota News" ? "Organization" : "Person", name: item.autor },
+      publisher: { "@type": "Organization", name: item.editor,
+        logo: { "@type": "ImageObject", url: config.siteUrl + "/assets/images/og-tome-nota.png" } },
+      mainEntityOfPage: { "@type": "WebPage", "@id": url }
+    };
+    if (item.publicado_em && !Number.isNaN(new Date(item.publicado_em).valueOf())) schema.datePublished = new Date(item.publicado_em).toISOString();
+    const json = el("script");
+    json.type = "application/ld+json";
+    json.id = "news-schema";
+    json.textContent = JSON.stringify(schema).replace(/</g, "\\u003c");
+    document.getElementById("news-schema")?.remove();
+    document.head.append(json);
+  }
+  async function renderArticle() {
+    if (grid) {
+      // Compatibility with already shared /?noticia= links.
+      const main = document.getElementById("conteudo");
+      main.replaceChildren(el("article", "wrap article-view"));
+      main.firstChild.id = "article-view";
+      main.firstChild.append(el("h1", "", "Carregando notícia..."));
     }
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+    const wrapper = document.getElementById("article-view");
+    try {
+      if (!slug || slug.length > 240) throw new Error("Missing slug");
+      // Full text and editorial credits are requested only for an individual public story.
+      const query = new URLSearchParams({ select: publicFields + ",texto:body,autor:author,editor:publisher", slug: "eq." + slug, limit: "1" });
+      const items = await request(query);
+      wrapper.replaceChildren();
+      const back = el("a", "back-link", "Todas as notícias"); back.href = "./"; wrapper.append(back);
+      if (!items.length) {
+        wrapper.append(el("h1", "", "Notícia não encontrada"), el("p", "", "Ela pode ter sido removida ou ainda não está publicada."));
+        document.title = "Notícia não encontrada | Tome Nota News";
+        const robots = el("meta"); robots.name = "robots"; robots.content = "noindex"; document.head.append(robots);
+        return;
+      }
+      const item = items[0];
+      wrapper.append(el("h1", "", item.titulo), el("p", "article-summary", item.resumo));
+      const time = el("time", "", dateText(item.publicado_em)); if (item.publicado_em) time.dateTime = item.publicado_em;
+      const credits = el("p", "card-meta"); credits.append("Por " + item.autor + " · ", time); wrapper.append(credits);
+      const cover = imageUrl(item.capa);
+      if (cover) { const image = el("img", "article-cover"); image.src = cover; image.alt = item.titulo; image.decoding = "async"; wrapper.append(image); }
+      const body = el("div", "article-body");
+      const paragraphs = String(item.texto || item.resumo || "").split(/\n\s*\n/).filter(Boolean);
+      const middle = Math.max(1, Math.ceil(paragraphs.length / 2));
+      paragraphs.forEach((text, index) => { body.append(el("p", "", text)); if (index + 1 === middle) body.append(adSlot()); });
+      if (!paragraphs.length) body.append(adSlot());
+      wrapper.append(body);
+      const share = el("a", "article-share", "Compartilhar no WhatsApp");
+      share.href = "https://wa.me/?text=" + encodeURIComponent(item.titulo + " " + articleUrl(item));
+      share.target = "_blank"; share.rel = "noopener noreferrer"; wrapper.append(share);
+      articleMetadata(item);
+      window.TNNAds.refresh();
+    } catch {
+      wrapper.replaceChildren(el("h1", "", "Não foi possível carregar a notícia"), el("p", "", "Tente novamente em instantes."));
+      document.title = "Conteúdo indisponível | Tome Nota News";
+      const back = el("a", "back-link", "Voltar às notícias"); back.href = "./"; wrapper.append(back);
+    }
   }
-  start();
+  async function loadList() {
+    if (loading) return;
+    loading = true; more.disabled = true; status.classList.add("visible");
+    status.textContent = "Carregando notícias...";
+    try {
+      const items = await request(new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: "60", offset: String(offset) }));
+      publications.push(...items); offset += items.length;
+      more.hidden = items.length < 60;
+      renderList(); status.classList.remove("visible", "error");
+    } catch {
+      status.textContent = "Não foi possível carregar as notícias. Tente novamente.";
+      status.classList.add("visible", "error"); more.hidden = false; more.textContent = "Tentar novamente";
+    } finally { loading = false; more.disabled = false; }
+  }
+  if (document.getElementById("article-view") || slug) renderArticle();
+  else { search.addEventListener("input", renderList); more.addEventListener("click", loadList); loadList(); }
 })();
+
