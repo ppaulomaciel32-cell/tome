@@ -206,5 +206,6 @@ test("headers, robots, sitemap and contact SQL are scoped and explicit", () => {
   assert.match(sql, /for insert to anon/i); assert.doesNotMatch(sql, /for select/i);
   assert.match(sql, /grant insert \(nome, email, mensagem\)/i);
   assert.match(sql, /between 10 and 2000/);
+  assert.match(sql, /char_length\(nome\) <= 100/);
+  assert.match(sql, /char_length\(mensagem\) <= 2000/);
 });
-
