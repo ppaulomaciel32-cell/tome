@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; frame-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; frame-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; media-src 'self' https://res.cloudinary.com;">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#0b1f36">
 <title>Tome Nota News | Notícias do Ceará</title>
@@ -31,13 +31,72 @@
 <script src="./assets/js/consent.js" defer></script>
 <script src="./assets/js/ads.js" defer></script>
 <script src="./app.js" defer></script>
+<script src="./vendor/gsap.min.js" defer></script>
+<script src="./vendor/ScrollTrigger.min.js" defer></script>
+<script src="./motion.js" defer></script>
+<link rel="preconnect" href="https://res.cloudinary.com">
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+<link rel="preload" as="image" href="https://res.cloudinary.com/dalwymbky/image/upload/f_auto,q_auto/v1789662983/fundo1_nnjqgx.png" fetchpriority="high">
 </head>
 <body>
 <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
 <div class="topline"><div class="wrap topline-inner"><span>Jornalismo local, perto de você</span><span class="topline-region">São Gonçalo do Amarante · Ceará</span></div></div>
 <header class="site-header"><div class="wrap header-inner"><a class="brand" href="./" aria-label="Tome Nota News, página inicial"><span class="brand-mark" aria-hidden="true">tn</span><span class="brand-copy"><strong>TOME NOTA</strong><small>NEWS · CEARÁ</small></span></a><nav class="main-nav" aria-label="Navegação principal"><a href="./#ultimas">Notícias</a><a href="./sobre.html">Sobre</a><a href="./contato.html">Contato</a></nav><a class="follow-link" href="https://www.instagram.com/tomenotanews/" target="_blank" rel="noopener noreferrer">Instagram</a></div></header>
 <aside class="ad-space wrap" aria-label="Publicidade topo"><span class="ad-label">Publicidade</span><!-- ADSENSE PLACEHOLDERS: substitua o cliente e o slot topo. --><ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-SEU_ID_AQUI" data-ad-slot="0000000000" data-ad-format="auto" data-full-width-responsive="true"></ins></aside>
-<main id="conteudo"><section class="wrap news-intro"><p class="eyebrow">Jornal digital regional do Ceará</p><h1>Tome Nota News</h1><p>São Gonçalo do Amarante, Pecém, Taíba e região.</p></section>
+<main id="conteudo"><section class="tn-reveal" aria-labelledby="hero-title">
+  <div class="tn-reveal__bg tn-reveal__bg--base" aria-hidden="true"></div>
+  <div class="tn-reveal__bg tn-reveal__bg--alt" aria-hidden="true"></div>
+  <div class="tn-reveal__copy">
+    <h1 id="hero-title" class="tn-reveal__title"><span class="sr-only">Tome Nota News — </span><span>O que acontece</span> <span><em>perto de você.</em></span></h1>
+  </div>
+  <div class="tn-reveal__blue-reveal" aria-hidden="true"></div>
+  <img class="tn-reveal__person" src="https://res.cloudinary.com/dalwymbky/image/upload/f_auto,q_auto/v1789662983/homemsemfundo_dezean.png" alt="" aria-hidden="true" width="1672" height="941" decoding="async" fetchpriority="high">
+  <div class="tn-reveal__copy tn-reveal__copy--mask" aria-hidden="true">
+    <p class="tn-reveal__title"><span>O que acontece</span> <span><em>perto de você.</em></span></p>
+  </div>
+  <div class="tn-reveal__footer">
+    <p>Jornal digital regional do Ceará. <strong>São Gonçalo do Amarante, Pecém, Taíba e região.</strong></p>
+    <a class="tn-reveal__cta" href="#ultimas"><span>Ver últimas notícias</span><span class="tn-reveal__cta-icon" aria-hidden="true">↘</span></a>
+  </div>
+</section>
+<script>(function (h) { document.documentElement.style.setProperty("--tn-reveal-top", Math.round(h.getBoundingClientRect().top + scrollY) + "px"); })(document.querySelector(".tn-reveal"));</script>
+<section class="tn-stage" aria-labelledby="tn-stage-title">
+  <div class="tn-stage__viewport">
+    <div class="tn-stage__video-wrapper" aria-hidden="true">
+      <video id="tn-stage-video" class="tn-stage__video" muted playsinline preload="auto" crossorigin="anonymous" disablepictureinpicture disableremoteplayback tabindex="-1"></video>
+      <div class="tn-stage__overlay"></div>
+    </div>
+    <div class="tn-stage__content">
+      <div class="tn-stage__message">
+        <h2 id="tn-stage-title" class="tn-stage__title">Feito perto<br>de quem vive<br><strong>a notícia.</strong></h2>
+      </div>
+      <p class="tn-stage__side-text">Notícia local.<br>Informação responsável.</p>
+    </div>
+    <div class="tn-promise">
+      <div class="tn-promise__inner">
+        <h2 class="tn-promise__title">Nosso compromisso</h2>
+        <div class="tn-promise__grid">
+          <article class="tn-promise__card">
+            <span class="tn-promise__dot" aria-hidden="true"></span>
+            <h3>Informar com clareza</h3>
+            <p>Com responsabilidade e contexto: fatos separados de opiniões e fontes verificadas.</p>
+          </article>
+          <article class="tn-promise__card">
+            <span class="tn-promise__dot" aria-hidden="true"></span>
+            <h3>Ouvir a comunidade</h3>
+            <p>Damos visibilidade às demandas de quem vive aqui. Sugestões do público são avaliadas pela redação.</p>
+          </article>
+          <article class="tn-promise__card">
+            <span class="tn-promise__dot" aria-hidden="true"></span>
+            <h3>Revisar cada pauta</h3>
+            <p>Todo conteúdo passa por apuração e revisão antes de ser publicado. Erros constatados são corrigidos.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+    <div class="tn-stage__loading" aria-hidden="true">Carregando… <span id="tn-stage-progress">0</span>%</div>
+  </div>
+</section>
 <section class="wrap news-section" id="ultimas" aria-labelledby="news-title"><div class="section-heading"><h2 id="news-title">Últimas notícias</h2><span id="result-count" class="result-count" aria-live="polite"></span></div>
 <div class="filters"><label class="search-box"><span class="sr-only">Buscar notícia</span><input id="search" type="search" placeholder="Buscar notícia..." autocomplete="off"></label></div>
 <div id="status-message" class="status-message visible" role="status">Carregando notícias...</div><div id="news-grid" class="news-grid" aria-live="polite"></div><button id="load-more" class="primary-button" type="button" hidden>Carregar mais notícias</button></section>
@@ -49,4 +108,3 @@
 <div class="wrap footer-bottom"><span>São Gonçalo do Amarante · Ceará</span><span>Publicidade somente após autorização.</span></div></footer>
 </body>
 </html>
-
