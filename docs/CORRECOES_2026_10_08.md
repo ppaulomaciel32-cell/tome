@@ -23,6 +23,29 @@ analise do Google. Configuracao por env sera integrada ao build de pre-render.
 Rollback: reverter o commit `fix(adsense): connect publisher and hide placeholders`
 e publicar novamente no mesmo servico Render. Nenhuma migration nesta etapa.
 
+## Etapa 1.1 — Schema publico
+
+Preflight: 0 registros totais, 0 visiveis, 0 usando data existente e 0 exigindo
+fallback de created_at. Backfill nao promove rascunhos nem antecipara agendadas.
+Migration em `supabase/migrations/*_harden_publications.sql`: limites de slug,
+title e summary, vetor de busca em portugues, indices e trigger de timestamps.
+Chaves, nomes fisicos, limite de body, cover HTTPS e policy existente preservados.
+
+Arquivos: migration, `database/publications_backfill_preflight.sql`,
+`tests/publications-schema.sql`, `tests/publications-rls.sql` e este documento.
+
+Teste: `psql "$TNN_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/publications-schema.sql`.
+Tambem pode executar o arquivo inteiro no SQL Editor; termina com ROLLBACK.
+Resultado executado no Supabase: PASS para defaults, transicao de publicacao,
+updated_at, vetor gerado em portugues e rejeicao dos quatro campos invalidos.
+O teste RLS foi escrito antes das permissoes e reproduziu 42501 ao filtrar status:
+a role anon ainda nao tinha acesso a essa coluna. A etapa 1.2 corrige esse acesso.
+
+Risco: novas escritas exigem resumo de 10 a 500 caracteres, titulo de 3 a 300 e
+slug de 3 a 240. Rollback seguro do frontend e `git revert` do commit correspondente.
+Antes de reverter constraints no banco, conferir se novas linhas cabem nos limites
+antigos (titulo 5-180; resumo <=500). Nao remover dados para forcar rollback.
+
 ## Proximas etapas e limites
 
 Usar os nomes reais `title`, `summary` e `body`; os nomes em portugues sao aliases
