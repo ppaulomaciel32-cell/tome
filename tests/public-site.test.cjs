@@ -86,12 +86,39 @@ test("server search reaches a published story outside the first 60 of 95 fixture
   };
   run(env,"app.js"); await flush();
   assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Pescadores do Pecem"),false);
+  assert.equal(env.ids["result-count"].textContent,"24 de 95 matérias");
   env.ids.search.value="Pescadores"; env.ids.search.events.input(); await settleSearch();
   assert.equal(calls.length,2,"search makes a new server request");
   assert.equal(calls[1].query.get("search"),"wfts(portuguese).Pescadores");
   assert.equal(calls[1].query.get("status"),"eq.published");
   assert.equal(calls[1].query.get("offset"),"0");
   assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Pescadores do Pecem"),true);
+  assert.equal(env.ids["result-count"].textContent,"1 de 1 matéria");
+});
+test("pagination uses exact Content-Range totals and requests 24 rows per page", async () => {
+  const env=listEnvironment(),calls=[];
+  const fixtures=Array.from({length:52},(_,i)=>({titulo:"Noticia "+i,slug:"materia-"+i,resumo:"Resumo",publicado_em:null}));
+  env.context.fetch=async (url,options)=>{
+    const query=new URL(url).searchParams,offset=Number(query.get("offset")),limit=Number(query.get("limit"));
+    calls.push({query,options});
+    return {ok:true,headers:{get:()=>`${offset}-${Math.min(offset+limit,52)-1}/52`},json:async()=>fixtures.slice(offset,offset+limit)};
+  };
+  run(env,"app.js");await flush();
+  assert.equal(env.ids["result-count"].textContent,"24 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,false);
+  await env.ids["load-more"].events.click();
+  assert.equal(env.ids["result-count"].textContent,"48 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,false);
+  await env.ids["load-more"].events.click();
+  assert.equal(env.ids["result-count"].textContent,"52 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,true);
+  assert.deepEqual(calls.map(c=>c.query.get("offset")),["0","24","48"]);
+  assert.ok(calls.every(c=>c.query.get("limit")==="24" && c.options.headers.Prefer==="count=exact"));
+});
+test("an unavailable exact count shows an error instead of inventing the total", async () => {
+  for(const range of [null,"0-0/*","*/NaN"]){
+    const env=listEnvironment();env.context.fetch=async()=>({ok:true,headers:{get:()=>range},json:async()=>[]});
+    run(env,"app.js");await flush();
+    assert.ok(env.ids["status-message"].classes.has("error"));
+    assert.equal(env.ids["result-count"].textContent,"");
+  }
 });
 test("search debounces and aborts old requests; late responses cannot replace newer results", async () => {
   const env=listEnvironment(), calls=[];

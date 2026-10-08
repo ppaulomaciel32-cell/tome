@@ -72,8 +72,6 @@ para a listagem e para noticias por slug. Teste: `node --test tests/public-site.
 Rollback: reverter o commit `fix(api): explicitly filter published stories`.
 As rotas antigas continuam validas; nenhum filtro de seguranca foi removido.
 
-## Proximas etapas e limites
-
 ## Etapa 1.4 — Busca em todas as publicacoes
 
 `public-site/app.js`: busca no servidor, debounce de 300 ms, cancelamento com
@@ -90,6 +88,25 @@ converte asteriscos de LIKE em curingas mesmo dentro das aspas.
 Teste: `node --test tests/public-site.test.cjs` — 14/14 passaram.
 Rollback: reverter o commit `fix(search): query all published stories on the server`;
 a coluna e o indice de busca podem permanecer no banco sem afetar a versao antiga.
+
+## Proximas etapas e limites
+
+## Etapa 1.5 — Paginacao com total real
+
+Arquivos: `public-site/app.js`, `public-site/index.html`,
+`tests/public-site.test.cjs` e este documento. Paginas de 24 materias,
+`Prefer: count=exact`, total lido de `Content-Range` e indicador X de Y materias.
+O botao de carregar mais usa o total real. Falta de contagem gera estado de erro,
+sem inventar um total. A busca e limitada a 100 caracteres. Apenas a contagem,
+e nao o grid inteiro, usa aria-live.
+
+Teste: `node --test tests/public-site.test.cjs` — 16/16 passaram.
+Fixture de paginacao: 24 de 52, 48 de 52, 52 de 52; offsets 0, 24, 48.
+Queries HTTP anon reais para full-text, virgula/parentese, asterisco literal e
+rascunhos retornaram HTTP 200, Content-Range */0 e nenhuma noticia.
+Rollback: `git revert` do commit `fix(pagination): use exact totals and pages of 24`.
+Risco: count=exact pode ficar mais caro com um catalogo muito grande; monitorar
+sem substituir silenciosamente o total por estimativa.
 
 ## Proximas etapas e limites
 

@@ -12,6 +12,8 @@
   const slug = new URLSearchParams(location.search).get("slug") || new URLSearchParams(location.search).get("noticia");
   let publications = [];
   let offset = 0;
+  let total = 0;
+  const pageSize = 24;
   let loading = false;
   let searchTerm = "";
   let listVersion = 0;
@@ -51,7 +53,7 @@
     aside.append(ins);
     return aside;
   }
-  async function request(query, parentSignal) {
+  async function request(query, parentSignal, countExact = false) {
     query.set("status", "eq.published");
     const controller = new AbortController();
     const cancel = () => controller.abort();
@@ -60,17 +62,22 @@
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(table + "?" + query, {
-        headers: { apikey: config.supabaseAnonKey, Authorization: "Bearer " + config.supabaseAnonKey, Accept: "application/json" },
+        headers: { apikey: config.supabaseAnonKey, Authorization: "Bearer " + config.supabaseAnonKey, Accept: "application/json", ...(countExact ? { Prefer: "count=exact" } : {}) },
         cache: "no-store", signal: controller.signal
       });
       if (!response.ok) throw new Error("Publications unavailable");
       const data = await response.json();
       if (!Array.isArray(data)) throw new Error("Invalid response");
+      if (countExact) {
+        const range = /^(?:\d+-\d+|\*)\/(\d+)$/.exec(response.headers.get("Content-Range") || "");
+        if (!range || !Number.isSafeInteger(Number(range[1]))) throw new Error("Missing exact count");
+        return { items: data, total: Number(range[1]) };
+      }
       return data;
     } finally { clearTimeout(timer); parentSignal?.removeEventListener("abort", cancel); }
   }
   function listQuery() {
-    const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: "60", offset: String(offset) });
+    const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: String(pageSize), offset: String(offset) });
     if (searchTerm.length >= 3) query.set("search", "wfts(portuguese)." + searchTerm);
     else if (searchTerm) {
       // Quote PostgREST grammar, then URLSearchParams handles URL encoding once.
@@ -88,7 +95,7 @@
   function renderList() {
     const visible = publications;
     grid.replaceChildren();
-    count.textContent = visible.length + (visible.length === 1 ? " matéria" : " matérias");
+    count.textContent = visible.length + " de " + total + (total === 1 ? " matéria" : " matérias");
     if (!visible.length) {
       const empty = el("div", "empty-state");
       empty.append(el("strong", "", searchTerm ? "Nenhum resultado encontrado." : "A redação ainda não publicou notícias."));
@@ -192,10 +199,12 @@
     loading = true; more.disabled = true; status.classList.add("visible");
     status.textContent = "Carregando notícias...";
     try {
-      const items = await request(listQuery(), controller.signal);
+      const result = await request(listQuery(), controller.signal, true);
       if (version !== listVersion) return;
+      const { items } = result;
+      total = result.total;
       publications.push(...items); offset += items.length;
-      more.hidden = items.length < 60;
+      more.hidden = offset >= total;
       more.textContent = "Carregar mais notícias";
       renderList(); status.classList.remove("visible", "error");
     } catch {
@@ -210,7 +219,7 @@
     clearTimeout(debounceTimer);
     searchTerm = next; listVersion++;
     listController?.abort();
-    publications = []; offset = 0; loading = false;
+    publications = []; offset = 0; total = 0; loading = false;
     more.hidden = true; grid.replaceChildren(); count.textContent = "";
     status.classList.remove("error"); status.classList.add("visible");
     status.textContent = "Buscando notícias...";
