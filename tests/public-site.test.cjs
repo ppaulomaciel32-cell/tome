@@ -64,6 +64,62 @@ function choose(env, label) {
   assert.ok(button, "Consent choice exists"); button.events.click();
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+const settleSearch = () => new Promise(resolve => setTimeout(resolve, 340));
+function listEnvironment() {
+  const env = environment();
+  for (const [id, tag] of Object.entries({ "news-grid":"div", "status-message":"p", search:"input", "result-count":"span", "load-more":"button" }))
+    env.ids[id] = new Node(tag);
+  return env;
+}
+test("server search reaches a published story outside the first 60 of 95 fixtures", async () => {
+  const env = listEnvironment(), calls = [];
+  const fixtures = Array.from({length:95}, (_,i) => ({
+    id:String(i), slug:"materia-"+i, titulo:i===90 ? "Pescadores do Pecem" : "Noticia regional "+i,
+    resumo:"Resumo de uma materia publicada.", capa:null, publicado_em:"2026-10-08T10:00:00Z"
+  }));
+  env.context.fetch = async (url,options) => {
+    const query = new URL(url).searchParams; calls.push({query,options});
+    const term = (query.get("search") || "").replace(/^wfts\(portuguese\)\./, "");
+    const rows = term ? fixtures.filter(x => x.titulo.toLowerCase().includes(term.toLowerCase())) : fixtures;
+    const offset = Number(query.get("offset")), limit = Number(query.get("limit"));
+    return {ok:true, headers:{get:() => `${offset}-${Math.min(offset+limit,rows.length)-1}/${rows.length}`}, json:async () => rows.slice(offset,offset+limit)};
+  };
+  run(env,"app.js"); await flush();
+  assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Pescadores do Pecem"),false);
+  env.ids.search.value="Pescadores"; env.ids.search.events.input(); await settleSearch();
+  assert.equal(calls.length,2,"search makes a new server request");
+  assert.equal(calls[1].query.get("search"),"wfts(portuguese).Pescadores");
+  assert.equal(calls[1].query.get("status"),"eq.published");
+  assert.equal(calls[1].query.get("offset"),"0");
+  assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Pescadores do Pecem"),true);
+});
+test("search debounces and aborts old requests; late responses cannot replace newer results", async () => {
+  const env=listEnvironment(), calls=[];
+  env.context.fetch=(url,options)=>new Promise(resolve=>calls.push({query:new URL(url).searchParams,options,resolve}));
+  const response=title=>({ok:true,headers:{get:()=>"0-0/1"},json:async()=>[{titulo:title,resumo:"Resumo seguro",slug:"teste-busca",publicado_em:null}]});
+  run(env,"app.js"); await flush();
+  env.ids.search.value="Pe"; env.ids.search.events.input();
+  env.ids.search.value="Pecem"; env.ids.search.events.input();
+  assert.equal(calls[0].options.signal.aborted,true);
+  await settleSearch(); assert.equal(calls.length,2);
+  calls[1].resolve(response("Resultado novo")); await flush();
+  calls[0].resolve(response("Resultado atrasado")); await flush();
+  assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Resultado novo"),true);
+  assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Resultado atrasado"),false);
+});
+test("short searches quote PostgREST delimiters and preserve literal wildcard characters", async () => {
+  const env=listEnvironment(), calls=[];
+  env.context.fetch=async url=>{calls.push(new URL(url).searchParams);return {ok:true,headers:{get:()=>"*/0"},json:async()=>[]};};
+  run(env,"app.js"); await flush();
+  const quote=value=>'"'+value.replace(/\\/g,"\\\\").replace(/"/g,'\\"')+'"';
+  for (const [term,operator,pattern] of [[",(","ilike","%,(%"],[")","ilike","%)%"],["%_","ilike","%\\%\\_%"],["a*","imatch","a\\*"],['"',"ilike",'%"%']]) {
+    env.ids.search.value=term; env.ids.search.events.input(); await settleSearch();
+    const query=calls.at(-1);
+    assert.equal(query.get("or"),`(title.${operator}.${quote(pattern)},summary.${operator}.${quote(pattern)})`);
+    assert.equal(query.get("offset"),"0");
+    assert.equal(query.get("search"),null);
+  }
+});
 test("contact email appears only for a valid configured address", () => {
   for (const email of ["", "[SUBSTITUIR PELO E-MAIL REAL]", "redacao@example.com"]) {
     const env = environment();

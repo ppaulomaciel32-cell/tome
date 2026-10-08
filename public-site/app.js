@@ -13,6 +13,10 @@
   let publications = [];
   let offset = 0;
   let loading = false;
+  let searchTerm = "";
+  let listVersion = 0;
+  let listController = null;
+  let debounceTimer = null;
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -47,9 +51,12 @@
     aside.append(ins);
     return aside;
   }
-  async function request(query) {
+  async function request(query, parentSignal) {
     query.set("status", "eq.published");
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    if (parentSignal?.aborted) cancel();
+    else parentSignal?.addEventListener("abort", cancel, { once: true });
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(table + "?" + query, {
@@ -60,17 +67,32 @@
       const data = await response.json();
       if (!Array.isArray(data)) throw new Error("Invalid response");
       return data;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); parentSignal?.removeEventListener("abort", cancel); }
+  }
+  function listQuery() {
+    const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: "60", offset: String(offset) });
+    if (searchTerm.length >= 3) query.set("search", "wfts(portuguese)." + searchTerm);
+    else if (searchTerm) {
+      // Quote PostgREST grammar, then URLSearchParams handles URL encoding once.
+      const quote = value => '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+      // PostgREST replaces * with % in LIKE patterns, even when quoted. Use a
+      // literal regex for a short term containing * so it cannot become a wildcard.
+      const literalStar = searchTerm.includes("*");
+      const pattern = literalStar ? searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") :
+        "%" + searchTerm.replace(/[\\%_]/g, "\\$&") + "%";
+      const operator = literalStar ? "imatch" : "ilike";
+      query.set("or", "(title." + operator + "." + quote(pattern) + ",summary." + operator + "." + quote(pattern) + ")");
+    }
+    return query;
   }
   function renderList() {
-    const term = search.value.trim().toLocaleLowerCase("pt-BR");
-    const visible = publications.filter(item => [item.titulo, item.resumo].join(" ").toLocaleLowerCase("pt-BR").includes(term));
+    const visible = publications;
     grid.replaceChildren();
     count.textContent = visible.length + (visible.length === 1 ? " matéria" : " matérias");
     if (!visible.length) {
       const empty = el("div", "empty-state");
-      empty.append(el("strong", "", publications.length ? "Nenhum resultado encontrado." : "A redação ainda não publicou notícias."));
-      empty.append(el("p", "", publications.length ? "Tente outra busca." : "As matérias aprovadas aparecerão aqui."));
+      empty.append(el("strong", "", searchTerm ? "Nenhum resultado encontrado." : "A redação ainda não publicou notícias."));
+      empty.append(el("p", "", searchTerm ? "Tente outra busca." : "As matérias aprovadas aparecerão aqui."));
       grid.append(empty);
     }
     visible.forEach(item => {
@@ -163,20 +185,38 @@
     }
   }
   async function loadList() {
-    if (loading) return;
+    if (loading || debounceTimer !== null) return;
+    const version = listVersion;
+    const controller = new AbortController();
+    listController = controller;
     loading = true; more.disabled = true; status.classList.add("visible");
     status.textContent = "Carregando notícias...";
     try {
-      const items = await request(new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: "60", offset: String(offset) }));
+      const items = await request(listQuery(), controller.signal);
+      if (version !== listVersion) return;
       publications.push(...items); offset += items.length;
       more.hidden = items.length < 60;
+      more.textContent = "Carregar mais notícias";
       renderList(); status.classList.remove("visible", "error");
     } catch {
+      if (version !== listVersion || controller.signal.aborted) return;
       status.textContent = "Não foi possível carregar as notícias. Tente novamente.";
       status.classList.add("visible", "error"); more.hidden = false; more.textContent = "Tentar novamente";
-    } finally { loading = false; more.disabled = false; }
+    } finally { if (version === listVersion) { loading = false; more.disabled = false; } }
+  }
+  function searchChanged() {
+    const next = search.value.trim().slice(0, 100);
+    if (next === searchTerm) return;
+    clearTimeout(debounceTimer);
+    searchTerm = next; listVersion++;
+    listController?.abort();
+    publications = []; offset = 0; loading = false;
+    more.hidden = true; grid.replaceChildren(); count.textContent = "";
+    status.classList.remove("error"); status.classList.add("visible");
+    status.textContent = "Buscando notícias...";
+    debounceTimer = setTimeout(() => { debounceTimer = null; loadList(); }, 300);
   }
   if (document.getElementById("article-view") || slug) renderArticle();
-  else { search.addEventListener("input", renderList); more.addEventListener("click", loadList); loadList(); }
+  else { search.addEventListener("input", searchChanged); more.addEventListener("click", loadList); loadList(); }
 })();
 

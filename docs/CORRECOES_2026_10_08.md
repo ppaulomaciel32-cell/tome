@@ -64,8 +64,6 @@ publicaveis nela. O cliente continua com whitelist de campos. Para reverter o
 GRANT, primeiro reverter o filtro/busca no frontend e depois revogar SELECT da
 tabela (os antigos grants de leitura por coluna permanecem).
 
-## Proximas etapas e limites
-
 ## Etapa 1.3 — Filtro explicito no cliente
 
 `public-site/app.js` acrescenta `status=eq.published` no ponto unico de requests,
@@ -73,6 +71,25 @@ para a listagem e para noticias por slug. Teste: `node --test tests/public-site.
 11/11 passaram, incluindo a assercao do filtro na consulta individual.
 Rollback: reverter o commit `fix(api): explicitly filter published stories`.
 As rotas antigas continuam validas; nenhum filtro de seguranca foi removido.
+
+## Proximas etapas e limites
+
+## Etapa 1.4 — Busca em todas as publicacoes
+
+`public-site/app.js`: busca no servidor, debounce de 300 ms, cancelamento com
+AbortController, protecao contra respostas atrasadas e offset zerado por termo.
+O caso de 95 noticias com a materia procurada na posicao 91 falhou antes da
+correcao e passou depois. `tests/public-site.test.cjs` tambem testa cancelamento
+e termos contendo virgula, parenteses, aspas, porcentagem, underscore e asterisco.
+
+A sintaxe REST correta e `search=wfts(portuguese).TERMO` e os filtros usam
+`title`/`summary`, nunca os aliases `titulo`/`resumo`. Termos curtos usam ILIKE
+com valor entre aspas. Para `*` literal usa-se regex escapada, porque o PostgREST
+converte asteriscos de LIKE em curingas mesmo dentro das aspas.
+
+Teste: `node --test tests/public-site.test.cjs` — 14/14 passaram.
+Rollback: reverter o commit `fix(search): query all published stories on the server`;
+a coluna e o indice de busca podem permanecer no banco sem afetar a versao antiga.
 
 ## Proximas etapas e limites
 
