@@ -46,6 +46,24 @@ slug de 3 a 240. Rollback seguro do frontend e `git revert` do commit correspond
 Antes de reverter constraints no banco, conferir se novas linhas cabem nos limites
 antigos (titulo 5-180; resumo <=500). Nao remover dados para forcar rollback.
 
+## Etapa 1.2 — Acesso anonimo e RLS
+
+Migration `supabase/migrations/*_public_publications_read_access.sql` concede
+somente SELECT a anon na tabela publica, inclusive status/search para filtros.
+Mantida a policy original: `status='published' AND published_at <= now()`.
+Nao houve mudanca em policies, nomes ou dados de tabelas privadas.
+
+Teste: `psql "$TNN_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/publications-rls.sql`.
+Resultado no banco: PASS; publicada visivel, rascunho/agendada invisiveis,
+INSERT/UPDATE/DELETE rejeitados com 42501; 0 fixtures depois do rollback.
+Conferencia adicional: anon_write=false, trigger security_definer=false,
+RPC do trigger inacessivel a anon. Inspecao de seguranca limitada a esta tabela.
+
+Risco: SELECT abrange todas as colunas da tabela publica; manter apenas dados
+publicaveis nela. O cliente continua com whitelist de campos. Para reverter o
+GRANT, primeiro reverter o filtro/busca no frontend e depois revogar SELECT da
+tabela (os antigos grants de leitura por coluna permanecem).
+
 ## Proximas etapas e limites
 
 Usar os nomes reais `title`, `summary` e `body`; os nomes em portugues sao aliases
