@@ -34,6 +34,7 @@
   }
   function adSlot() {
     const aside = el("aside", "ad-space ad-in-article");
+    aside.hidden = true; // ads.js reveals only a configured manual slot.
     aside.setAttribute("aria-label", "Publicidade no meio do artigo");
     aside.append(el("span", "ad-label", "Publicidade"));
     const ins = el("ins", "adsbygoogle");

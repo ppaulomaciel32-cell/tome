@@ -58,31 +58,39 @@ Permissions-Policy e X-Content-Type-Options tambem dependem dessa configuracao.
 A CSP segue a lista de hosts pedida. O Google pode exigir hosts adicionais
 para formatos/recursos futuros; revise apenas apos testar o codigo real.
 
-## Substituir os tres placeholders
+## AdSense configurado e campos pendentes
 
-1. Cliente: troque ca-pub-SEU_ID_AQUI por ca-pub-NUMERO em
-   assets/js/config.js e nos ins das sete paginas HTML. ads.js sincroniza os
-   ins com config.js depois do consentimento. Em ads.txt, troque pub-SEU_ID_AQUI
-   por pub-NUMERO, sem ca-. O placeholder NAO autoriza anuncios reais.
-2. E-mail: troque [SUBSTITUIR PELO E-MAIL REAL] em assets/js/config.js e nos
-   textos HTML de contato/privacidade/cookies para o fallback sem JavaScript.
-3. Slots: troque 0000000000 nos ins dos HTML pelo ID de topo/rodape apropriado.
+ID instalado em 08/10/2026: ca-pub-2000164835494228 em assets/js/config.js,
+nos ins das sete paginas HTML e na metatag google-adsense-account de cada head.
+O arquivo public-site/ads.txt usa pub-2000164835494228, sem o prefixo ca-.
+A pasta public-site e a raiz publicada pelo Render.
+
+1. E-mail: informe o endereco editorial real em contactEmail de assets/js/config.js.
+   Enquanto vazio ou invalido, common.js remove o bloco inteiro de e-mail, sem
+   criar mailto. O formulario e o Instagram continuam como canais publicados.
+2. Slots manuais, se forem usados: troque 0000000000 nos ins dos HTML pelo ID
+   de topo/rodape apropriado.
    Em public-site/app.js, troque o ID do slot criado por adSlot() pelo ID do
    anuncio in-article. Configure cada unidade com o formato correto no Google.
 
 O script externo fica bloqueado ate aceitar todos e ate o cliente ter formato
-valido; IDs de slot zerados nunca sao enviados para a fila de anuncios.
-Nenhum script do Google e carregado por mero acesso ao site, pela recusa ou
-enquanto os placeholders estiverem presentes.
+valido. Slots zerados ficam ocultos junto com o rotulo Publicidade e o espaco
+reservado, desde o HTML inicial e tambem no artigo carregado por JavaScript.
+Eles nunca sao enviados para a fila de anuncios. ads.js revela somente slots
+manuais configurados. Os anuncios automaticos independem desses slots: podem
+funcionar apos o consentimento, se ativados no painel e aprovados pelo Google.
+Nenhum script do Google e carregado antes da primeira escolha ou pela recusa.
 
 ## Verificacao e consentimento
 
-Cole a META TAG de verificacao do Google imediatamente abaixo do comentario
-<!-- ADSENSE VERIFICATION: cole aqui --> no head de public-site/index.html
-(e nas outras paginas se necessario). Nunca cole ali o script externo AdSense:
-isso violaria o bloqueio antes do consentimento. Se o Google oferecer
-verificacao por ads.txt, publique o ads.txt com o ID real. O ca-pub do codigo
-recebido vai para config.js e para os atributos data-ad-client dos ins.
+A META TAG de verificacao ja esta no codigo-fonte das sete paginas, abaixo do
+comentario <!-- ADSENSE VERIFICATION: cole aqui -->. A verificacao por Metatag
+nao depende do consentimento e nao carrega JavaScript do Google. Nunca cole
+ali o script externo AdSense: isso violaria o bloqueio antes do consentimento.
+No painel AdSense: selecione Metatag, marque Inseri a tag e clique em Verificar.
+Solicitar revisao e uma etapa separada; antes, publique conteudo editorial
+proprio e revise os dados de contato. Esta alteracao nao solicita revisao e nao
+publica materias nem altera dados ou politicas no Supabase.
 
 localStorage.tnn_cookie_consent guarda all ou essential; o aviso nao reaparece
 apos uma escolha. O rodape permite reabrir as preferencias. Ao revogar,
