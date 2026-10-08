@@ -48,6 +48,7 @@
     return aside;
   }
   async function request(query) {
+    query.set("status", "eq.published");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {

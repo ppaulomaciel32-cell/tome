@@ -193,6 +193,7 @@ test("individual article is queried by slug, safely rendered, with live metadata
   env.window.TNNAds = { refresh() {} };
   run(env, "app.js"); await flush();
   assert.equal(query.searchParams.get("slug"), "eq.noticia-antiga");
+  assert.equal(query.searchParams.get("status"), "eq.published");
   assert.equal(query.searchParams.get("limit"), "1");
   assert.equal(all(article).filter(n => n.tagName === "H1").length, 1);
   assert.equal(all(article).filter(n => n.tagName === "SCRIPT").length, 0);

@@ -66,6 +66,16 @@ tabela (os antigos grants de leitura por coluna permanecem).
 
 ## Proximas etapas e limites
 
+## Etapa 1.3 — Filtro explicito no cliente
+
+`public-site/app.js` acrescenta `status=eq.published` no ponto unico de requests,
+para a listagem e para noticias por slug. Teste: `node --test tests/public-site.test.cjs`;
+11/11 passaram, incluindo a assercao do filtro na consulta individual.
+Rollback: reverter o commit `fix(api): explicitly filter published stories`.
+As rotas antigas continuam validas; nenhum filtro de seguranca foi removido.
+
+## Proximas etapas e limites
+
 Usar os nomes reais `title`, `summary` e `body`; os nomes em portugues sao aliases
 do PostgREST. Preservar URLs antigas e a policy que tambem bloqueia publicacoes
 agendadas. O escopo de banco e somente `public.tomenota_publications`.
