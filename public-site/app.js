@@ -10,6 +10,8 @@
   const count = document.getElementById("result-count");
   const more = document.getElementById("load-more");
   const slug = new URLSearchParams(location.search).get("slug") || new URLSearchParams(location.search).get("noticia");
+  const localityValue = document.documentElement?.dataset?.localidade || new URLSearchParams(location.search).get("localidade");
+  const locality = ["sao-goncalo","pecem","taiba","croata","paracuru","regiao"].includes(localityValue) ? localityValue : "";
   let publications = [];
   let offset = 0;
   let total = 0;
@@ -26,6 +28,7 @@
     return node;
   }
   function articleUrl(item) {
+    if (config.builtSlugs?.includes(item.slug)) return new URL("/noticia/" + encodeURIComponent(item.slug) + "/", config.siteUrl).href;
     const url = new URL("/noticia.html", config.siteUrl);
     url.searchParams.set("slug", item.slug);
     return url.href;
@@ -78,6 +81,7 @@
   }
   function listQuery() {
     const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: String(pageSize), offset: String(offset) });
+    if (locality) query.set("localidade", "eq." + locality);
     if (searchTerm.length >= 3) query.set("search", "wfts(portuguese)." + searchTerm);
     else if (searchTerm) {
       // Quote PostgREST grammar, then URLSearchParams handles URL encoding once.
@@ -105,7 +109,7 @@
     visible.forEach(item => {
       const card = el("article", "news-card");
       const link = el("a", "card-link");
-      link.href = "./noticia.html?slug=" + encodeURIComponent(item.slug);
+      link.href = articleUrl(item);
       const cover = imageUrl(item.capa);
       if (cover) {
         const image = el("img", "card-image");
