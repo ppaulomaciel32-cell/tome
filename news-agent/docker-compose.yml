@@ -1,0 +1,81 @@
+name: tome-nota-redacao
+services:
+  bot-whatsapp:
+    build:
+      context: .
+      args:
+        WHISPER_MODEL: ${WHISPER_MODEL:-tiny}
+    env_file: .env
+    command: [python, -m, tnn.web]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=64m,mode=1777]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  agente:
+    build:
+      context: .
+      args:
+        WHISPER_MODEL: ${WHISPER_MODEL:-tiny}
+    env_file: .env
+    command: [python, -m, tnn.worker]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=128m,mode=1777]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    volumes: [agent-data:/data, ./backups:/backups]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "from tnn.store import RedisStore; assert RedisStore().r.exists('tnn:worker-heartbeat')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits: {cpus: '2', memory: 1536M}
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Configure REDIS_PASSWORD}
+    command: [/bin/sh, -c, 'exec redis-server --appendonly yes --appendfsync everysec --save 900 1 --requirepass "$$REDIS_PASSWORD"']
+    restart: unless-stopped
+    networks: [backend]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports: ['80:80','443:443']
+    networks: [backend]
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      bot-whatsapp: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1/healthz | grep -q ok']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  redis-data:
+  agent-data:
+networks:
+  backend:
+    driver: bridge

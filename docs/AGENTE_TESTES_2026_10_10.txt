@@ -1,0 +1,65 @@
+Tome Nota News — testes executados em 10/10/2026
+Provedores externos simulados nos testes Node/Python.
+
+NODE
+✔ invalid or absent token cannot reach database (11.477559ms)
+✔ non-object JSON fails before any database call (5.227877ms)
+✔ reject incomplete article, script URL, bad locality and future revision (1.255923ms)
+✔ transaction and rebuild return a concrete URL; token is not sent to rebuild (3.776293ms)
+✔ a failed rebuild is reported as pending, never as live (1.723441ms)
+✔ missing deployment configuration blocks mutation (1.563863ms)
+✔ editorial audit removes credentials and email (1.041794ms)
+✔ server search reaches a published story outside the first 60 of 95 fixtures (384.014508ms)
+✔ pagination uses exact Content-Range totals and requests 24 rows per page (7.891125ms)
+✔ an unavailable exact count shows an error instead of inventing the total (4.219242ms)
+✔ search debounces and aborts old requests; late responses cannot replace newer results (343.864396ms)
+✔ short searches quote PostgREST delimiters and preserve literal wildcard characters (1706.1128ms)
+✔ contact email appears only for a valid configured address (3.50692ms)
+✔ seven HTML pages have metadata, one h1 and complete shared legal links (2.532791ms)
+✔ public code contains only the anon JWT and narrowly selected fields (1.869611ms)
+✔ AdSense is blocked before consent and after essential-only choice (1.613984ms)
+✔ valid client loads only after accepting; each slot is queued once (2.464891ms)
+✔ saved refusal persists across pages; invalid consent and unavailable storage fail closed (2.895436ms)
+✔ placeholder clients never load ads, and placeholder slots are not queued (1.294421ms)
+✔ individual article is queried by slug, safely rendered, with live metadata and NewsArticle (10.58246ms)
+✔ missing article gets noindex and a single h1; network errors show a recovery link (2.201762ms)
+✔ contact uses POST minimal, trimmed fields, no data read, and duplicate-submit guard (1.069359ms)
+✔ headers, robots, sitemap and contact SQL are scoped and explicit (0.319191ms)
+✔ SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages (65.412277ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2586.96236
+
+PYTHON
+test_approval_mode_waits_and_correction_keeps_sources (test_agent.AgentTests.test_approval_mode_waits_and_correction_keeps_sources) ... ok
+test_complete_mock_pipeline_order_and_image (test_agent.AgentTests.test_complete_mock_pipeline_order_and_image) ... ok
+test_correction_after_publication_reuses_job_and_source_hash (test_agent.AgentTests.test_correction_after_publication_reuses_job_and_source_hash) ... ok
+test_deploy_not_ready_never_sends_live_url (test_agent.AgentTests.test_deploy_not_ready_never_sends_live_url) ... ok
+test_drael_adapter_uses_confirmed_host_no_server_tools_and_json_validation (test_agent.AgentTests.test_drael_adapter_uses_confirmed_host_no_server_tools_and_json_validation) ... ok
+test_duplicate_five_minutes_and_72h (test_agent.AgentTests.test_duplicate_five_minutes_and_72h) ... ok
+test_json_validation_blocks_unsupported_numbers (test_agent.AgentTests.test_json_validation_blocks_unsupported_numbers) ... ok
+test_missing_photo_uses_default_and_warns (test_agent.AgentTests.test_missing_photo_uses_default_and_warns) ... ok
+test_network_failure_retries_twice_and_does_not_publish (test_agent.AgentTests.test_network_failure_retries_twice_and_does_not_publish) ... ok
+test_photo_then_text_and_audio (test_agent.AgentTests.test_photo_then_text_and_audio) ... ok
+test_preview_escapes_database_and_model_output (test_agent.AgentTests.test_preview_escapes_database_and_model_output) ... ok
+test_repeated_meta_message_does_not_duplicate (test_agent.AgentTests.test_repeated_meta_message_does_not_duplicate) ... ok
+test_status_and_list_commands_do_not_create_jobs (test_agent.AgentTests.test_status_and_list_commands_do_not_create_jobs) ... ok
+test_story_dimensions_weight_and_long_headline (test_agent.AgentTests.test_story_dimensions_weight_and_long_headline) ... ok
+test_three_failed_jobs_trigger_stage_alert (test_agent.AgentTests.test_three_failed_jobs_trigger_stage_alert) ... ok
+test_unauthorized_number_never_creates_job (test_agent.AgentTests.test_unauthorized_number_never_creates_job) ... ok
+test_weak_sources_warn_before_writing_and_approval_resumes (test_agent.AgentTests.test_weak_sources_warn_before_writing_and_approval_resumes) ... ok
+test_webhook_signature_and_payload_tampering (test_agent.AgentTests.test_webhook_signature_and_payload_tampering) ... ok
+test_real_http_signature_challenge_queue_and_private_preview (test_http.HTTPTests.test_real_http_signature_challenge_queue_and_private_preview) ... ok
+test_atomic_dedup_under_concurrency_and_recovery (test_redis.RedisTests.test_atomic_dedup_under_concurrency_and_recovery) ... ok
+test_dedup_ttl_commands_preview_and_delivery_claim (test_redis.RedisTests.test_dedup_ttl_commands_preview_and_delivery_claim) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 2.406s
+
+OK
+

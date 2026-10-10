@@ -1,0 +1,8 @@
+.env
+.env.*
+data
+backups
+certs
+test-output
+__pycache__
+.venv

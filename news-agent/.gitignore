@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+!.env.edge.example
+__pycache__/
+*.pyc
+.venv/
+data/
+backups/
+certs/
+test-output/
