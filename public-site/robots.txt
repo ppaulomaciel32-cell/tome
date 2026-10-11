@@ -2,5 +2,5 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /assets/js/config.js
-Sitemap: https://tomenotanews.com.br/sitemap.xml
+Sitemap: https://tomezap.com.br/sitemap.xml
 

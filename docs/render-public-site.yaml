@@ -11,11 +11,11 @@ services:
     staticPublishPath: dist-public
     autoDeployTrigger: commit
     domains:
-      - tomenotanews.com.br
-      - www.tomenotanews.com.br
+      - tomezap.com.br
+      - www.tomezap.com.br
     envVars:
       - key: SITE_URL
-        value: https://tomenotanews.com.br
+        value: https://tomezap.com.br
       - key: NODE_VERSION
         value: "22"
       - key: SKIP_INSTALL_DEPS

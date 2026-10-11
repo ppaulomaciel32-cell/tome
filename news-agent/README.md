@@ -1,13 +1,14 @@
 # Redação Tome Nota News pelo WhatsApp
 
-Implementação para Python 3.12, Meta WhatsApp Cloud API, Drael, Tavily,
+Implementação para Python 3.12, Meta WhatsApp Cloud API, Gemini, Tavily,
 Cloudinary, Redis, Supabase e o site estático existente no Render.
 O código está implementado; a operação real depende das configurações abaixo.
-Consulte [o relatório de verificação](../docs/AGENTE_ENTREGA_2026_10_10.md).
-O domínio definido é **tomenotanews.com.br**; o bot usará
-**bot.tomenotanews.com.br**. A troca está preparada no código, com ativação
+Consulte [a ativação atual](../docs/ATIVACAO_TOMEZAP_GEMINI.md). O
+[relatório de 10/10](../docs/AGENTE_ENTREGA_2026_10_10.md) registra a versão anterior.
+O domínio definido é **tomezap.com.br**; o bot usará
+**bot.tomezap.com.br**. A troca está preparada no código, com ativação
 dependente de DNS e HTTPS. Consulte o
-[roteiro de ativação do domínio](../docs/DOMINIO_TOMENOTANEWS_2026_10_11.md).
+[roteiro de ativação do domínio e Gemini](../docs/ATIVACAO_TOMEZAP_GEMINI.md).
 
 ## Escopo e decisões
 
@@ -15,10 +16,17 @@ dependente de DNS e HTTPS. Consulte o
   `nginx`. O navegador recebe somente os arquivos estáticos e a chave anon.
 - O site continua no Render, que já oferece CDN para sites estáticos. Não foi
   contratada VPS, assinatura, domínio ou serviço adicional.
-- A IA é **Drael**: `https://drael.sh/v1/chat/completions`, modelo `drael-v1`.
-  A implementação usa HTTP da biblioteca padrão, sem SDK da OpenAI. O formato
-  compatível de mensagens não muda o provedor. A chave compartilhada no chat
-  não foi gravada nem usada. Substitua-a no painel Drael antes da ativação.
+- A IA de redação é **Gemini**, pela API oficial `generateContent` do Google.
+  A implementação usa HTTP da biblioteca padrão, sem SDK adicional. Configure
+  `GEMINI_API_KEY` somente no servidor e `GEMINI_MODEL=gemini-3.5-flash-lite`.
+  O endpoint fica fixo em `generativelanguage.googleapis.com`; a chave vai no
+  cabeçalho `x-goog-api-key`, sem aparecer na URL. Não há fallback para Drael
+  nem troca automática de modelo/plano quando uma cota acaba.
+- A resposta estruturada permite matéria ou recusa por fontes insuficientes.
+  A validação local bloqueia números sem suporte, JSON inválido, conteúdo
+  truncado, respostas bloqueadas pelo Google e chamadas inesperadas de ferramentas.
+  A pesquisa continua no Tavily; nenhuma ferramenta de busca/execução do Gemini
+  é habilitada. O Gemini recebe texto de pauta, fontes e eventual correção.
 - O banco real usa `title`, `summary` e `body`. A API aceita `titulo`, `resumo`
   e `texto` e faz a correspondência sem renomear colunas.
 - Apenas `public.tomenota_publications`, a nova `public.agent_log` e a função
@@ -32,8 +40,8 @@ dependente de DNS e HTTPS. Consulte o
   redação; nenhuma fonte interrompe a pauta.** Esta exceção evita transformar
   uma busca fraca em notícia automática. “Informações preliminares” só é
   permitido quando a própria fonte declara isso.
-- A transcrição é local, com faster-whisper tiny em CPU. Não foi inventado
-  um endpoint de áudio do Drael. A VPS precisa de memória/CPU disponíveis;
+- A transcrição é local, com faster-whisper tiny em CPU. Áudio e fotos não
+  são enviados ao Gemini por esta implementação. A VPS precisa de memória/CPU disponíveis;
   a imagem Docker inclui o modelo e fica maior por essa razão.
 - São usadas conversas individuais da API oficial. Integração com grupos
   depende da elegibilidade da conta e não está implementada nesta versão.
@@ -81,7 +89,7 @@ No Dashboard Supabase, em **Edge Functions → Secrets**, configurar:
 | Secret | Valor |
 |---|---|
 | `INGEST_SERVICE_TOKEN` | Segredo aleatório exclusivo, pelo menos 32 caracteres; igual ao da VPS |
-| `TNN_SITE_URL` | `https://tomenotanews.com.br` |
+| `TNN_SITE_URL` | `https://tomezap.com.br` |
 | `TNN_SITE_REBUILD_HOOK` | Deploy Hook privado do serviço público no Render |
 
 `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já são fornecidos pelo runtime.
@@ -114,14 +122,14 @@ e a branch `public-site-github-supabase`. Na configuração do serviço:
 | Publish Directory | `dist-public` |
 | `NODE_VERSION` | `22` |
 | `SKIP_INSTALL_DEPS` | `true` |
-| `SITE_URL` | `https://tomenotanews.com.br` |
+| `SITE_URL` | `https://tomezap.com.br` |
 
 O conector disponível não permite editar Build Command/Publish Directory.
 Esses dois valores ainda precisam ser salvos no painel. Não crie outro serviço
 nem aplique o `render.yaml` da raiz, que pertence a outro sistema.
 
 Antes de ativar estes valores, associe o domínio ao serviço, configure o DNS,
-confirme HTTPS e incorpore a branch `feat/tomenotanews-com-br` à branch de
+confirme HTTPS e incorpore a branch `feat/tomezap-gemini` à branch de
 publicação. Não troque os links do site atual enquanto o novo endereço não
 resolver. A configuração desejada está em
 [`docs/render-public-site.yaml`](../docs/render-public-site.yaml).
@@ -165,7 +173,7 @@ Os nomes das telas podem variar conforme o tipo e a situação da conta.
 5. Copie o **App Secret** para `META_APP_SECRET`. Ele valida o HMAC
    `X-Hub-Signature-256` de cada POST; não é o Verify Token do webhook.
 6. Com a VPS e o HTTPS funcionando, configure Callback URL
-   `https://bot.tomenotanews.com.br/webhook` e um Verify Token aleatório igual a
+   `https://bot.tomezap.com.br/webhook` e um Verify Token aleatório igual a
    `WEBHOOK_VERIFY_TOKEN`. A verificação GET devolve o challenge.
 7. Assine o campo **messages** do objeto `whatsapp_business_account`.
    Eventos de status de entrega vêm em `value.statuses`, sem disparar jobs.
@@ -203,7 +211,7 @@ sudo chown 10001:10001 backups
 ```
 
 Edite `.env` no servidor. Não cole credenciais no chat e não versione `.env`.
-Preencha Meta, Drael, Tavily, Cloudinary e os endereços. Use um preset
+Preencha Meta, Gemini, Tavily, Cloudinary e os endereços. Use um preset
 **signed** do Cloudinary e `CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@dalwymbky`.
 O upload usa assinatura, foto com EXIF removido e public_id por job.
 
@@ -231,7 +239,7 @@ docker compose build
 docker compose run --rm bot-whatsapp python -m tnn.preflight
 docker compose up -d
 docker compose ps
-curl --fail https://bot.tomenotanews.com.br/healthz
+curl --fail https://bot.tomezap.com.br/healthz
 ```
 
 ### VPS com nginx existente — opção para o servidor informado
@@ -253,18 +261,18 @@ curl --fail http://127.0.0.1:18080/healthz
 O arquivo [`nginx-host.example.conf`](nginx-host.example.conf) contém somente
 os blocos do novo hostname. Adicione-o separadamente à configuração do nginx
 do host, sem substituir outros sites. Emita primeiro o certificado de
-`bot.tomenotanews.com.br` pelo procedimento já usado no servidor e ajuste os
+`bot.tomezap.com.br` pelo procedimento já usado no servidor e ajuste os
 caminhos no exemplo. Se mudar `BOT_BIND_PORT`, ajuste também o upstream.
 Execute `nginx -t` antes de recarregar o nginx existente. Não aplique esse
 arquivo antes de o certificado existir. Depois confira
-`https://bot.tomenotanews.com.br/healthz` e configure o webhook na Meta.
+`https://bot.tomezap.com.br/healthz` e configure o webhook na Meta.
 Essa instalação ainda precisa ser testada no servidor real.
 
 O preflight verifica presença/formato, não validade de saldo ou tokens.
 A fila tem persistência AOF/RDB. Um lock do Redis mantém um worker ativo;
 jobs interrompidos voltam da lista processing no reinício. Cada etapa tem
 timeout nos adaptadores e até duas novas tentativas para falhas transitórias.
-Timeout incerto do Drael não é repetido, pois pode já consumir saldo; envio
+Timeout incerto do Gemini não é repetido, pois pode já consumir cota; envio
 incerto da Meta também não é repetido cegamente.
 
 ## 5. Fontes, arte e operação
@@ -348,19 +356,23 @@ promessa de 90s enquanto esse teste não for medido.
 
 ## Custos e limites
 
-Não foi contratado nem cobrado serviço nesta implementação. Porém **não é
-possível garantir custo zero do fluxo Drael**: a documentação consultada em
-10/10/2026 exige plano pago elegível de quatro semanas para a API; plano
-gratuito ou semanal não libera a API. Confirme se sua assinatura atual já
-cobre esse uso. Não houve chamada de geração nesta sessão.
+Não foi contratado serviço nem executada chamada real de geração nesta troca.
+A tabela oficial consultada em 11/10/2026 oferece free tier para texto no
+`gemini-3.5-flash-lite`. A disponibilidade efetiva depende da conta e das
+cotas. Configure uma chave de projeto no plano gratuito no Google AI Studio;
+o código não consegue deduzir pela chave se o projeto tem faturamento ativo.
+Não habilite cobrança para contornar limite. O código limita a saída a 4096
+tokens e não aciona ferramentas extras do Gemini. Confira as condições de
+uso de dados do plano escolhido antes de enviar informações confidenciais.
 
 Tavily, Cloudinary, Supabase, Render e Meta têm limites/regras próprios.
 Use as cotas existentes e não habilite recarga automática sem decisão sua.
 A VPS e o domínio também precisam já estar disponíveis para não haver nova
 contratação. O frontend não exige npm install; os pacotes Python ficam no bot.
 
-Fontes técnicas: [Drael](https://drael.sh/docs/quickstart),
-[parâmetros Drael](https://drael.sh/docs/chat),
+Fontes técnicas: [Gemini generateContent](https://ai.google.dev/api/generate-content),
+[modelo Gemini](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite),
+[preços e cotas Gemini](https://ai.google.dev/gemini-api/docs/pricing),
 [Tavily](https://docs.tavily.com/documentation/api-reference/endpoint/search),
 [Cloudinary](https://cloudinary.com/documentation/upload_images),
 [Render Static Sites](https://render.com/docs/static-sites).

@@ -1,0 +1,79 @@
+Verificação local — Tome Nota News / tomezap.com.br / Gemini
+Data: 2026-10-11
+Chamadas reais de geração Gemini: nenhuma. Testes do provedor usam respostas simuladas.
+
+$ node --test tests/ingest.test.mjs tests/ssg.test.mjs tests/public-site.test.cjs
+✔ invalid or absent token cannot reach database (11.034169ms)
+✔ non-object JSON fails before any database call (19.103727ms)
+✔ reject incomplete article, script URL, bad locality and future revision (3.600536ms)
+✔ transaction and rebuild return a concrete URL; token is not sent to rebuild (5.955322ms)
+✔ a failed rebuild is reported as pending, never as live (9.778535ms)
+✔ missing deployment configuration blocks mutation (1.190598ms)
+✔ editorial audit removes credentials and email (0.781964ms)
+✔ server search reaches a published story outside the first 60 of 95 fixtures (381.644766ms)
+✔ pagination uses exact Content-Range totals and requests 24 rows per page (6.381153ms)
+✔ an unavailable exact count shows an error instead of inventing the total (2.699383ms)
+✔ search debounces and aborts old requests; late responses cannot replace newer results (342.19427ms)
+✔ short searches quote PostgREST delimiters and preserve literal wildcard characters (1704.33587ms)
+✔ contact email appears only for a valid configured address (2.898021ms)
+✔ seven HTML pages have metadata, one h1 and complete shared legal links (2.763439ms)
+✔ public code contains only the anon JWT and narrowly selected fields (2.334456ms)
+✔ AdSense is blocked before consent and after essential-only choice (1.623047ms)
+✔ valid client loads only after accepting; each slot is queued once (2.555627ms)
+✔ saved refusal persists across pages; invalid consent and unavailable storage fail closed (3.026595ms)
+✔ placeholder clients never load ads, and placeholder slots are not queued (0.930126ms)
+✔ individual article is queried by slug, safely rendered, with live metadata and NewsArticle (4.073256ms)
+✔ missing article gets noindex and a single h1; network errors show a recovery link (2.43753ms)
+✔ contact uses POST minimal, trimmed fields, no data read, and duplicate-submit guard (1.335546ms)
+✔ headers, robots, sitemap and contact SQL are scoped and explicit (0.396736ms)
+✔ SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages (107.962357ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2564.661065
+
+$ PYTHONPATH=/tmp/tnn-agent-test-deps python3 -m unittest discover -s tests -v
+test_approval_mode_waits_and_correction_keeps_sources (test_agent.AgentTests.test_approval_mode_waits_and_correction_keeps_sources) ... ok
+test_complete_mock_pipeline_order_and_image (test_agent.AgentTests.test_complete_mock_pipeline_order_and_image) ... ok
+test_correction_after_publication_reuses_job_and_source_hash (test_agent.AgentTests.test_correction_after_publication_reuses_job_and_source_hash) ... ok
+test_deploy_not_ready_never_sends_live_url (test_agent.AgentTests.test_deploy_not_ready_never_sends_live_url) ... ok
+test_duplicate_five_minutes_and_72h (test_agent.AgentTests.test_duplicate_five_minutes_and_72h) ... ok
+test_gemini_adapter_uses_official_host_and_editorial_validation (test_agent.AgentTests.test_gemini_adapter_uses_official_host_and_editorial_validation) ... ok
+test_gemini_quota_failure_retries_twice_without_publishing (test_agent.AgentTests.test_gemini_quota_failure_retries_twice_without_publishing) ... ok
+test_json_validation_blocks_unsupported_numbers (test_agent.AgentTests.test_json_validation_blocks_unsupported_numbers) ... ok
+test_missing_photo_uses_default_and_warns (test_agent.AgentTests.test_missing_photo_uses_default_and_warns) ... ok
+test_network_failure_retries_twice_and_does_not_publish (test_agent.AgentTests.test_network_failure_retries_twice_and_does_not_publish) ... ok
+test_photo_then_text_and_audio (test_agent.AgentTests.test_photo_then_text_and_audio) ... ok
+test_preview_escapes_database_and_model_output (test_agent.AgentTests.test_preview_escapes_database_and_model_output) ... ok
+test_repeated_meta_message_does_not_duplicate (test_agent.AgentTests.test_repeated_meta_message_does_not_duplicate) ... ok
+test_status_and_list_commands_do_not_create_jobs (test_agent.AgentTests.test_status_and_list_commands_do_not_create_jobs) ... ok
+test_story_dimensions_weight_and_long_headline (test_agent.AgentTests.test_story_dimensions_weight_and_long_headline) ... ok
+test_three_failed_jobs_trigger_stage_alert (test_agent.AgentTests.test_three_failed_jobs_trigger_stage_alert) ... ok
+test_unauthorized_number_never_creates_job (test_agent.AgentTests.test_unauthorized_number_never_creates_job) ... ok
+test_uncertain_gemini_generation_stops_pipeline_without_publishing (test_agent.AgentTests.test_uncertain_gemini_generation_stops_pipeline_without_publishing) ... ok
+test_weak_sources_warn_before_writing_and_approval_resumes (test_agent.AgentTests.test_weak_sources_warn_before_writing_and_approval_resumes) ... ok
+test_webhook_signature_and_payload_tampering (test_agent.AgentTests.test_webhook_signature_and_payload_tampering) ... ok
+test_blocks_incomplete_safety_tool_and_malformed_responses (test_gemini.GeminiTests.test_blocks_incomplete_safety_tool_and_malformed_responses) ... ok
+test_correction_preserves_sources_and_system_instructions (test_gemini.GeminiTests.test_correction_preserves_sources_and_system_instructions) ... ok
+test_editorial_refusal_and_unsubstantiated_numbers_remain_blocked (test_gemini.GeminiTests.test_editorial_refusal_and_unsubstantiated_numbers_remain_blocked) ... ok
+test_invalid_model_cannot_change_destination_or_append_query_parameters (test_gemini.GeminiTests.test_invalid_model_cannot_change_destination_or_append_query_parameters) ... ok
+test_missing_gemini_key_never_falls_back_to_previous_provider (test_gemini.GeminiTests.test_missing_gemini_key_never_falls_back_to_previous_provider) ... ok
+test_only_complete_text_is_accepted_and_thoughts_are_excluded (test_gemini.GeminiTests.test_only_complete_text_is_accepted_and_thoughts_are_excluded) ... ok
+test_preflight_accepts_gemini_without_legacy_key (test_gemini.GeminiTests.test_preflight_accepts_gemini_without_legacy_key) ... ok
+test_uncertain_generation_is_not_retryable_and_does_not_leak_details (test_gemini.GeminiTests.test_uncertain_generation_is_not_retryable_and_does_not_leak_details) ... ok
+test_real_http_signature_challenge_queue_and_private_preview (test_http.HTTPTests.test_real_http_signature_challenge_queue_and_private_preview) ... ok
+test_atomic_dedup_under_concurrency_and_recovery (test_redis.RedisTests.test_atomic_dedup_under_concurrency_and_recovery) ... ok
+test_dedup_ttl_commands_preview_and_delivery_claim (test_redis.RedisTests.test_dedup_ttl_commands_preview_and_delivery_claim) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 2.342s
+
+OK
+
+$ node scripts/build-public-site.mjs
+{"articles":0,"localities":6,"out":"/workspace/scratch/e70bc0559a4c/tome-nota-supabase-gh/dist-public"}
+

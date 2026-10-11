@@ -4,7 +4,7 @@ import threading
 import time
 from .core import AgentError
 from .pipeline import Pipeline
-from .providers import WhatsApp,Search,Drael,Cloudinary,Ingest,Transcriber
+from .providers import WhatsApp,Search,Gemini,Cloudinary,Ingest,Transcriber
 from .store import RedisStore
 
 def main():
@@ -19,7 +19,7 @@ def main():
                 store.r.set('tnn:worker-heartbeat',str(time.time()),ex=60)
             except Exception:os._exit(1)
     threading.Thread(target=heartbeat,daemon=True).start()
-    pipeline=Pipeline(store,WhatsApp(store),Search(),Drael(),Cloudinary(),ingest,Transcriber())
+    pipeline=Pipeline(store,WhatsApp(store),Search(),Gemini(),Cloudinary(),ingest,Transcriber())
     store.recover()
     try:
         while True:

@@ -1,5 +1,9 @@
 # Ativação de tomenotanews.com.br
 
+> REGISTRO HISTÓRICO — substituído em 11/10/2026 por
+> [tomezap.com.br + Gemini](ATIVACAO_TOMEZAP_GEMINI.md).
+> Não usar o domínio ou a branch desta versão para a ativação atual.
+
 Registro de trabalho: 11/10/2026 (UTC). Domínio definido pelo proprietário:
 **tomenotanews.com.br**. Nenhum serviço ou domínio foi contratado.
 

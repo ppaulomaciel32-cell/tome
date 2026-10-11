@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from .core import AgentError, AmbiguousSend, https, parse_article, required
+from .core import AgentError, AmbiguousSend, LOCALS, gemini_model, https, parse_article, required
 
 class UncertainRequest(AgentError): pass
 
@@ -130,27 +130,54 @@ class Search:
                 'content':content,'published_date':str(item.get('published_date') or '')[:100]})
         return sources[:5]
 
-class Drael:
+class Gemini:
+    # Success or editorial refusal. The local validator remains authoritative.
+    response_schema={'anyOf':[
+        {'type':'object','properties':{
+            'slug':{'type':'string'},'titulo':{'type':'string'},
+            'resumo':{'type':'string'},'texto':{'type':'string'},
+            'localidade':{'type':'string','enum':list(LOCALS)},'capa_hint':{'type':'string'}},
+         'required':['slug','titulo','resumo','texto','localidade','capa_hint'],
+         'additionalProperties':False},
+        {'type':'object','properties':{'erro':{'type':'string','enum':['fontes_insuficientes']}},
+         'required':['erro'],'additionalProperties':False}]}
+
     def __init__(self,net=None): self.net=net or Net()
     def write(self,headline,sources,correction='',previous=None):
+        model=gemini_model()
         prompt=Path(__file__).with_name('editorial.txt').read_text()
         data={'pauta':headline,'fontes':sources,'correcao_solicitada':correction,'versao_anterior':previous}
         try:
-            result=self.net.json('https://drael.sh/v1/chat/completions',{
-                'model':'drael-v1','temperature':0.3,'reasoning_effort':'none','max_tokens':3000,
-                'stream':False,'tools':[],'tool_choice':'none',
-                'messages':[{'role':'system','content':prompt},{'role':'user','content':json.dumps(data,ensure_ascii=False)}]},
-                {'Authorization':'Bearer '+required('DRAEL_API_KEY')},timeout=45,max_bytes=100000)
+            result=self.net.json(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',{
+                'systemInstruction':{'parts':[{'text':prompt}]},
+                'contents':[{'role':'user','parts':[{'text':json.dumps(data,ensure_ascii=False)}]}],
+                'generationConfig':{'temperature':0.3,'maxOutputTokens':4096,'candidateCount':1,
+                    'responseFormat':{'text':{'mimeType':'APPLICATION_JSON','schema':self.response_schema}}}},
+                {'x-goog-api-key':required('GEMINI_API_KEY')},timeout=45,max_bytes=100000)
         except UncertainRequest:
-            # O Drael documenta que um turno interrompido pode continuar e consumir saldo.
-            raise AgentError('A resposta do Drael foi interrompida. Não repeti a geração para evitar consumo duplicado.') from None
+            # A geração pode ter sido processada; não gastar cota duas vezes sem confirmação.
+            raise AgentError('A resposta do Gemini foi interrompida. Não repeti a geração para evitar consumo duplicado.') from None
         try:
-            choice=result['choices'][0]
-            if choice.get('finish_reason') not in ('stop',None): raise ValueError('truncated')
-            if choice['message'].get('tool_calls'): raise ValueError('tool_call')
-            return parse_article(choice['message']['content'],sources)
-        except (KeyError,IndexError,TypeError,ValueError):
-            raise AgentError('O Drael não entregou uma matéria completa.') from None
+            if result.get('promptFeedback',{}).get('blockReason'): raise ValueError('blocked')
+            candidates=result['candidates']
+            if not isinstance(candidates,list) or len(candidates)!=1: raise ValueError('candidates')
+            choice=candidates[0]
+            if choice.get('finishReason')!='STOP': raise ValueError('incomplete')
+            if any(r.get('blocked') for r in choice.get('safetyRatings',[])): raise ValueError('blocked')
+            parts=choice['content']['parts']
+            if not isinstance(parts,list) or not parts: raise ValueError('parts')
+            chunks=[]
+            for part in parts:
+                if not isinstance(part,dict) or any(k in part for k in ('functionCall','executableCode','codeExecutionResult','inlineData','fileData')):
+                    raise ValueError('unexpected content')
+                if part.get('thought'): continue
+                if not isinstance(part.get('text'),str): raise ValueError('non-text')
+                chunks.append(part['text'])
+            content=''.join(chunks).strip()
+            if not content: raise ValueError('empty')
+        except (AttributeError,KeyError,IndexError,TypeError,ValueError):
+            raise AgentError('O Gemini não entregou uma matéria completa ou liberada para uso.') from None
+        return parse_article(content,sources)
 
 class Cloudinary:
     def __init__(self,net=None): self.net=net or Net()

@@ -1,3 +1,6 @@
+> REGISTRO HISTÓRICO: domínio e provedor de IA atualizados depois desta entrega.
+> Para ativação atual, consulte [tomezap.com.br + Gemini](ATIVACAO_TOMEZAP_GEMINI.md).
+
 # Entrega técnica — agente de redação — 10/10/2026
 
 Código do agente implementado com **Drael** e testes locais executados.

@@ -1,13 +1,15 @@
 import importlib.util
 import os
-from .core import https,phone
+from .core import AgentError,gemini_model,https,phone
 
 def main():
     names=['META_TOKEN','META_PHONE_ID','META_GRAPH_VERSION','META_APP_SECRET','WEBHOOK_VERIFY_TOKEN',
-      'DRAEL_API_KEY','TAVILY_API_KEY','CLOUDINARY_URL','CLOUDINARY_UPLOAD_PRESET','INGEST_URL',
+      'GEMINI_API_KEY','TAVILY_API_KEY','CLOUDINARY_URL','CLOUDINARY_UPLOAD_PRESET','INGEST_URL',
       'INGEST_SERVICE_TOKEN','WHITELIST_NUMBERS','AGENT_PUBLIC_URL','TRUSTED_SOURCE_DOMAINS','REDIS_URL']
     missing=[name for name in names if not os.getenv(name,'').strip()]
     errors=[]
+    try: gemini_model()
+    except AgentError as exc: errors.append(str(exc))
     for name in ['INGEST_URL','AGENT_PUBLIC_URL','SITE_URL']:
         if not https(os.getenv(name,'')):errors.append(name+' precisa ser HTTPS')
     for name in ['INGEST_SERVICE_TOKEN','WEBHOOK_VERIFY_TOKEN','META_APP_SECRET']:

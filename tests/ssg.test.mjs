@@ -26,7 +26,7 @@ test('SSG publishes only visible stories, escapes data, builds localities and pr
    const social=html.match(/<meta property="og:url" content="([^"]+)"/)[1];
    assert.equal(new URL(canonical).origin,site,relative);
    assert.equal(social,canonical,relative);
-   assert.ok(!html.includes('https://tomenotanews.com.br'),relative+' must use SITE_URL override');
+   assert.ok(!html.includes('https://tomezap.com.br'),relative+' must use SITE_URL override');
    assert.ok(!html.includes('https://tome-nota-publico.onrender.com'),relative+' must not retain legacy origin');
  }
  for(const [,url] of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g))assert.equal(new URL(url).origin,site);

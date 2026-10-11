@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 LOCALS = {'sao-goncalo':'São Gonçalo do Amarante','pecem':'Pecém','taiba':'Taíba',
           'croata':'Croatá','paracuru':'Paracuru','regiao':'Região'}
+DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 
 class AgentError(Exception):
     def __init__(self, message, retryable=False):
@@ -25,6 +26,12 @@ def required(name):
     if not value:
         raise AgentError(f'Configuração ausente: {name}.')
     return value
+
+def gemini_model():
+    model=os.getenv('GEMINI_MODEL',DEFAULT_GEMINI_MODEL).strip()
+    if not re.fullmatch(r'gemini-[a-z0-9][a-z0-9.-]{0,99}',model):
+        raise AgentError('GEMINI_MODEL inválido; use somente o identificador do modelo Gemini.')
+    return model
 
 def normalize(value):
     return ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
@@ -58,6 +65,8 @@ def parse_article(raw, sources):
     except (ValueError,TypeError):
         raise AgentError('A IA não retornou JSON válido.') from None
     if not isinstance(data,dict): raise AgentError('Resposta editorial inválida.')
+    if 'erro' in data:
+        raise AgentError('As fontes não sustentam uma matéria completa. Envie informações confirmadas.')
     for key,lower,upper in [('titulo',3,300),('resumo',10,500),('texto',1,40000)]:
         value=data.get(key)
         if not isinstance(value,str) or not lower<=len(value.strip())<=upper:
@@ -88,7 +97,7 @@ def preview_html(article, cover_url, sources):
 class Settings:
     require_approval: bool=False
     public_url: str=''
-    site_url: str='https://tomenotanews.com.br'
+    site_url: str='https://tomezap.com.br'
     grace_seconds: int=5
     build_wait_seconds: int=180
     @classmethod

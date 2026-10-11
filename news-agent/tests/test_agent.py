@@ -14,7 +14,7 @@ from PIL import Image
 from tnn.core import AgentError,Settings,fingerprint,parse_article,preview_html
 from tnn.art import render_story,default_photo,headline_lines,FONT
 from tnn.pipeline import Pipeline
-from tnn.providers import Drael,Search
+from tnn.providers import Gemini,Search,UncertainRequest
 from tnn.web import Bot,valid_signature
 
 ARTICLE={'slug':'ponte-interditada','titulo':'Ponte interditada após chuva na Taíba',
@@ -113,6 +113,22 @@ class AgentTests(unittest.TestCase):
   self.writer.fail=True;j=self.submit();self.pipeline.process(j['id'])
   self.assertEqual(self.writer.calls,3);self.assertEqual(len(self.ingest.payloads),0)
   self.assertEqual(self.store.get(j['id'])['status'],'failed')
+ def test_uncertain_gemini_generation_stops_pipeline_without_publishing(self):
+  calls=[]
+  class Fake:
+   def json(self,*args,**kwargs):calls.append(1);raise UncertainRequest('Test timeout',True)
+  self.pipeline.writer=Gemini(Fake());j=self.submit()
+  with patch.dict(os.environ,{'GEMINI_API_KEY':'test-only','GEMINI_MODEL':'gemini-3.5-flash-lite'}):self.pipeline.process(j['id'])
+  self.assertEqual(len(calls),1);self.assertEqual(self.ingest.payloads,[])
+  self.assertEqual(self.store.get(j['id'])['status'],'failed')
+ def test_gemini_quota_failure_retries_twice_without_publishing(self):
+  calls=[]
+  class Fake:
+   def json(self,*args,**kwargs):calls.append(1);raise AgentError('Limite do serviço atingido.',True)
+  self.pipeline.writer=Gemini(Fake());j=self.submit()
+  with patch.dict(os.environ,{'GEMINI_API_KEY':'test-only','GEMINI_MODEL':'gemini-3.5-flash-lite'}):self.pipeline.process(j['id'])
+  self.assertEqual(len(calls),3);self.assertEqual(self.ingest.payloads,[])
+  self.assertEqual(self.store.get(j['id'])['status'],'failed')
  def test_approval_mode_waits_and_correction_keeps_sources(self):
   self.settings.require_approval=True;j=self.submit();self.pipeline.process(j['id'])
   self.assertEqual(len(self.ingest.payloads),0);self.assertEqual(self.store.get(j['id'])['status'],'awaiting_approval')
@@ -156,11 +172,13 @@ class AgentTests(unittest.TestCase):
  def test_story_dimensions_weight_and_long_headline(self):
   a=copy.deepcopy(ARTICLE);a['titulo']='Notícia importante da região ' * 10
   data=render_story(a,default_photo());im=Image.open(io.BytesIO(data));self.assertEqual(im.size,(1080,1920));self.assertEqual(im.format,'PNG');self.assertLess(len(data),1500000)
- def test_drael_adapter_uses_confirmed_host_no_server_tools_and_json_validation(self):
+ def test_gemini_adapter_uses_official_host_and_editorial_validation(self):
   captured={}
   class Fake:
-   def json(self,url,payload,headers,**kwargs):captured.update(url=url,payload=payload);return {'choices':[{'finish_reason':'stop','message':{'content':json.dumps(ARTICLE)}}]}
-  with patch.dict(os.environ,{'DRAEL_API_KEY':'test-only'}):a=Drael(Fake()).write(ARTICLE['titulo'],SOURCES)
-  self.assertEqual(captured['url'],'https://drael.sh/v1/chat/completions');self.assertEqual(captured['payload']['model'],'drael-v1');self.assertEqual(captured['payload']['tools'],[]);self.assertEqual(captured['payload']['temperature'],.3);self.assertEqual(a['localidade'],'taiba')
+   def json(self,url,payload,headers,**kwargs):captured.update(url=url,payload=payload,headers=headers);return {'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(ARTICLE)}]}}]}
+  with patch.dict(os.environ,{'GEMINI_API_KEY':'test-only','GEMINI_MODEL':'gemini-3.5-flash-lite'}):a=Gemini(Fake()).write(ARTICLE['titulo'],SOURCES)
+  self.assertEqual(captured['url'],'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent')
+  self.assertNotIn('test-only',captured['url']);self.assertEqual(captured['headers'],{'x-goog-api-key':'test-only'})
+  self.assertNotIn('tools',captured['payload']);self.assertEqual(captured['payload']['generationConfig']['temperature'],.3);self.assertEqual(a['localidade'],'taiba')
 
 if __name__=='__main__':unittest.main()

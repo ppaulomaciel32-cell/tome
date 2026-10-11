@@ -73,7 +73,7 @@ class Bot:
     def command(self,sender,text,message_id):
         upper=text.upper()
         if upper=='LISTAR':
-            items=self.ingest.list();base=os.getenv('SITE_URL','https://tomenotanews.com.br').rstrip('/')
+            items=self.ingest.list();base=os.getenv('SITE_URL','https://tomezap.com.br').rstrip('/')
             response='\n\n'.join(x['title']+'\n'+base+'/noticia/'+x['slug']+'/' for x in items) or 'Ainda não há matérias publicadas pelo agente.'
             self.wa.text(sender,response,f'list:{message_id}');return
         job=self.store.last(sender)
