@@ -9,7 +9,7 @@ services:
     command: [python, -m, tnn.web]
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp:size=64m,mode=1777]
+    tmpfs: ["/tmp:size=64m,mode=1777"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend]
@@ -29,7 +29,7 @@ services:
     command: [python, -m, tnn.worker]
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp:size=128m,mode=1777]
+    tmpfs: ["/tmp:size=128m,mode=1777"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend]

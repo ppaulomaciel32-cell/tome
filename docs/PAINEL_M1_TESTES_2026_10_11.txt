@@ -1,0 +1,69 @@
+✔ invalid or absent token cannot reach database (11.57197ms)
+✔ non-object JSON fails before any database call (5.117266ms)
+✔ reject incomplete article, script URL, bad locality and future revision (1.578634ms)
+✔ transaction and rebuild return a concrete URL; token is not sent to rebuild (5.152332ms)
+✔ a failed rebuild is reported as pending, never as live (2.198202ms)
+✔ missing deployment configuration blocks mutation (1.492984ms)
+✔ editorial audit removes credentials and email (1.024255ms)
+✔ configuração rejeita service_role, host externo e origem insegura (3.100124ms)
+✔ healthcheck informa configuração pendente sem expor chaves (61.014579ms)
+✔ rotas privadas recusam visitantes e cookies inventados (17.368664ms)
+✔ login do dono cria cookie protegido e não entrega tokens ao navegador (18.575192ms)
+✔ editores autorizados recebem papel de editor, nunca de dono (8.500561ms)
+✔ e-mail fora da lista não chega ao Supabase (6.163743ms)
+✔ senha incorreta recebe erro genérico sem detalhes do provedor (6.457551ms)
+✔ e-mail não confirmado, usuário anônimo e identidade trocada são recusados (15.65479ms)
+✔ não contorna segundo fator já configurado na conta (4.508896ms)
+✔ origem externa, origem ausente e HTTP em produção são bloqueados (10.623476ms)
+✔ preflight permite apenas a origem exata e os métodos esperados (3.132741ms)
+✔ corpo malformado e formulário grande são recusados (5.757386ms)
+✔ limite de tentativas não pode ser driblado com X-Forwarded-For (25.611392ms)
+✔ renovação simultânea usa o refresh token uma única vez (26.615323ms)
+✔ sessão expira após 30 minutos sem uso (5.082103ms)
+✔ identidade revalidada bloqueia conta que perdeu confirmação (4.419468ms)
+✔ logout exige CSRF e revoga só a sessão local do painel (9.231274ms)
+✔ falha de rede não mostra segredos nem libera o painel (2.620599ms)
+✔ server search reaches a published story outside the first 60 of 95 fixtures (381.587471ms)
+✔ pagination uses exact Content-Range totals and requests 24 rows per page (12.539886ms)
+✔ an unavailable exact count shows an error instead of inventing the total (7.569315ms)
+✔ search debounces and aborts old requests; late responses cannot replace newer results (346.552961ms)
+✔ short searches quote PostgREST delimiters and preserve literal wildcard characters (1706.874639ms)
+✔ contact email appears only for a valid configured address (2.92181ms)
+✔ seven HTML pages have metadata, one h1 and complete shared legal links (6.999824ms)
+✔ public code contains only the anon JWT and narrowly selected fields (2.322099ms)
+✔ AdSense is blocked before consent and after essential-only choice (1.849927ms)
+✔ valid client loads only after accepting; each slot is queued once (2.207525ms)
+✔ saved refusal persists across pages; invalid consent and unavailable storage fail closed (3.623165ms)
+✔ placeholder clients never load ads, and placeholder slots are not queued (1.018519ms)
+✔ individual article is queried by slug, safely rendered, with live metadata and NewsArticle (6.955233ms)
+✔ missing article gets noindex and a single h1; network errors show a recovery link (5.639448ms)
+✔ contact uses POST minimal, trimmed fields, no data read, and duplicate-submit guard (1.524615ms)
+✔ headers, robots, sitemap and contact SQL are scoped and explicit (0.346985ms)
+✔ SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages (121.738468ms)
+ℹ tests 42
+ℹ suites 0
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2614.498351
+
+NAVEGADOR — Chrome for Testing, 11/10/2026
+Comando: PANEL_CHROMIUM_PATH=/tmp/tnn-chromium-official/chrome-headless-shell-linux64/chrome-headless-shell node --test tests/panel-ui.test.mjs
+▶ navegador: prévia, celular, login e bloqueio de sessão
+  ✔ prévia navega por seis módulos sem buscar dados nem publicar (745.694316ms)
+  ✔ prévia offline inclui a tela de login sem transmitir credenciais (294.751491ms)
+  ✔ celular mantém navegação e conteúdo sem rolagem lateral (927.343628ms)
+  ✔ login real só abre a área depois de validar sessão e rota protegida (553.543077ms)
+✔ navegador: prévia, celular, login e bloqueio de sessão (2672.631181ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3118.623797
+
+Os testes usam respostas simuladas da autenticação externa. Não comprovam login real, instalação na VPS ou ativação em produção.

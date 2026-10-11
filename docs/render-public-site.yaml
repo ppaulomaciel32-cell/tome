@@ -35,5 +35,14 @@ services:
         value: "camera=(), microphone=(), geolocation=()"
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; frame-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://bot.tomezap.com.br https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; frame-src 'self' https://*.supabase.co https://pagead2.googlesyndication.com https://fundingchoicesmessages.google.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
+      - path: /admin/*
+        name: Cache-Control
+        value: "no-store"
+      - path: /admin/*
+        name: X-Robots-Tag
+        value: "noindex, nofollow, noarchive"
+      - path: /admin/*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://bot.tomezap.com.br; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
