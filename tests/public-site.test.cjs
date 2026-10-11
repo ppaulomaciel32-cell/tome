@@ -45,7 +45,7 @@ function environment(saved = null, blocked = false) {
     getElementById: id => ids[id] || [...all(body), ...all(head)].find(x => x.id === id) || null,
     querySelector: selector => meta[selector] || null,
     querySelectorAll: selector => selector === "ins.adsbygoogle" ? slots : [] };
-  const window = { TNN_CONFIG: { siteUrl: "https://tome-nota-publico.onrender.com",
+  const window = { TNN_CONFIG: { siteUrl: "https://tomenotanews.com.br",
       supabaseUrl: "https://dfbeerxqqfqkwlljrjko.supabase.co", supabaseAnonKey: "anon-test",
       adClient: "ca-pub-1234567890123456", contactEmail: "[SUBSTITUIR PELO E-MAIL REAL]" },
     addEventListener: (name, fn) => { (events[name] ||= []).push(fn); },

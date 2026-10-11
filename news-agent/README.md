@@ -4,6 +4,10 @@ Implementação para Python 3.12, Meta WhatsApp Cloud API, Drael, Tavily,
 Cloudinary, Redis, Supabase e o site estático existente no Render.
 O código está implementado; a operação real depende das configurações abaixo.
 Consulte [o relatório de verificação](../docs/AGENTE_ENTREGA_2026_10_10.md).
+O domínio definido é **tomenotanews.com.br**; o bot usará
+**bot.tomenotanews.com.br**. A troca está preparada no código, com ativação
+dependente de DNS e HTTPS. Consulte o
+[roteiro de ativação do domínio](../docs/DOMINIO_TOMENOTANEWS_2026_10_11.md).
 
 ## Escopo e decisões
 
@@ -77,7 +81,7 @@ No Dashboard Supabase, em **Edge Functions → Secrets**, configurar:
 | Secret | Valor |
 |---|---|
 | `INGEST_SERVICE_TOKEN` | Segredo aleatório exclusivo, pelo menos 32 caracteres; igual ao da VPS |
-| `TNN_SITE_URL` | `https://tome-nota-publico.onrender.com` |
+| `TNN_SITE_URL` | `https://tomenotanews.com.br` |
 | `TNN_SITE_REBUILD_HOOK` | Deploy Hook privado do serviço público no Render |
 
 `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já são fornecidos pelo runtime.
@@ -110,12 +114,20 @@ e a branch `public-site-github-supabase`. Na configuração do serviço:
 | Publish Directory | `dist-public` |
 | `NODE_VERSION` | `22` |
 | `SKIP_INSTALL_DEPS` | `true` |
+| `SITE_URL` | `https://tomenotanews.com.br` |
 
 O conector disponível não permite editar Build Command/Publish Directory.
 Esses dois valores ainda precisam ser salvos no painel. Não crie outro serviço
 nem aplique o `render.yaml` da raiz, que pertence a outro sistema.
 
-Depois de salvar, faça **Manual Deploy → Deploy latest commit**. Copie o
+Antes de ativar estes valores, associe o domínio ao serviço, configure o DNS,
+confirme HTTPS e incorpore a branch `feat/tomenotanews-com-br` à branch de
+publicação. Não troque os links do site atual enquanto o novo endereço não
+resolver. A configuração desejada está em
+[`docs/render-public-site.yaml`](../docs/render-public-site.yaml).
+
+Depois de salvar, confira o deploy automático; se ele não iniciar, use
+**Manual Deploy → Deploy latest commit** no painel. Copie o
 Deploy Hook deste serviço diretamente para o secret da Edge Function.
 O hook é uma credencial: não colocar no código, mensagens ou logs.
 
@@ -153,7 +165,7 @@ Os nomes das telas podem variar conforme o tipo e a situação da conta.
 5. Copie o **App Secret** para `META_APP_SECRET`. Ele valida o HMAC
    `X-Hub-Signature-256` de cada POST; não é o Verify Token do webhook.
 6. Com a VPS e o HTTPS funcionando, configure Callback URL
-   `https://SEU_HOST_DO_BOT/webhook` e um Verify Token aleatório igual a
+   `https://bot.tomenotanews.com.br/webhook` e um Verify Token aleatório igual a
    `WEBHOOK_VERIFY_TOKEN`. A verificação GET devolve o challenge.
 7. Assine o campo **messages** do objeto `whatsapp_business_account`.
    Eventos de status de entrega vêm em `value.statuses`, sem disparar jobs.
@@ -173,10 +185,12 @@ Referências oficiais: [início](https://developers.facebook.com/documentation/b
 
 ## 4. Credenciais e VPS
 
-Pré-requisitos: Linux, Docker Engine com Compose v2, acesso ao host, portas
-80/443 disponíveis, DNS apontando para a VPS e certificado HTTPS válido.
-O hostname, SO, recursos e acesso dessa VPS ainda não foram fornecidos.
-Não desative outros serviços para liberar portas sem conferir o host real.
+Pré-requisitos: Linux, Docker Engine com Compose v2, acesso ao host, DNS
+apontando para a VPS e certificado HTTPS válido. O usuário confirmou que o
+servidor existente é seu. O relatório fornecido descreve Ubuntu com nginx
+nas portas 80/443; acesso SSH e recursos livres ainda não foram verificados.
+Para esse cenário, use a opção com nginx existente abaixo. O compose padrão
+serve para um host com 80/443 livres. Não desative serviços para liberar portas.
 
 Na pasta `news-agent` do checkout:
 
@@ -204,6 +218,8 @@ REDIS_PASSWORD. Configure `REDIS_URL=redis://:SENHA_HEXADECIMAL@redis:6379/0`.
 Essa variável fica apenas nos contêineres privados. Nenhuma porta do Redis
 é exposta à internet.
 
+### VPS com as portas 80/443 livres
+
 Instale o certificado do hostname do bot em `certs/fullchain.pem` e
 `certs/privkey.pem`, com renovação automatizada no host. O nginx fornecido
 termina TLS; emissão e renovação dependem do DNS/SO ainda não informados.
@@ -215,8 +231,34 @@ docker compose build
 docker compose run --rm bot-whatsapp python -m tnn.preflight
 docker compose up -d
 docker compose ps
-curl --fail https://SEU_HOST_DO_BOT/healthz
+curl --fail https://bot.tomenotanews.com.br/healthz
 ```
+
+### VPS com nginx existente — opção para o servidor informado
+
+Use os dois arquivos Compose juntos. A sobreposição expõe o bot somente em
+`127.0.0.1:18080` e deixa o nginx do contêiner fora da inicialização padrão.
+Redis permanece sem porta pública. Não ative o perfil `standalone-proxy`.
+Confirme que a porta local 18080 está livre antes de iniciar.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml build
+docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml run --rm bot-whatsapp python -m tnn.preflight
+docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml ps
+curl --fail http://127.0.0.1:18080/healthz
+```
+
+O arquivo [`nginx-host.example.conf`](nginx-host.example.conf) contém somente
+os blocos do novo hostname. Adicione-o separadamente à configuração do nginx
+do host, sem substituir outros sites. Emita primeiro o certificado de
+`bot.tomenotanews.com.br` pelo procedimento já usado no servidor e ajuste os
+caminhos no exemplo. Se mudar `BOT_BIND_PORT`, ajuste também o upstream.
+Execute `nginx -t` antes de recarregar o nginx existente. Não aplique esse
+arquivo antes de o certificado existir. Depois confira
+`https://bot.tomenotanews.com.br/healthz` e configure o webhook na Meta.
+Essa instalação ainda precisa ser testada no servidor real.
 
 O preflight verifica presença/formato, não validade de saldo ou tokens.
 A fila tem persistência AOF/RDB. Um lock do Redis mantém um worker ativo;

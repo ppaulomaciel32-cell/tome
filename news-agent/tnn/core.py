@@ -88,7 +88,7 @@ def preview_html(article, cover_url, sources):
 class Settings:
     require_approval: bool=False
     public_url: str=''
-    site_url: str='https://tome-nota-publico.onrender.com'
+    site_url: str='https://tomenotanews.com.br'
     grace_seconds: int=5
     build_wait_seconds: int=180
     @classmethod

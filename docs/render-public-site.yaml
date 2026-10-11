@@ -1,14 +1,25 @@
 # Isolated configuration for the public static service only.
 # Do not import the repository's existing render.yaml or create another service.
+# Target configuration: activate after the custom domain resolves and has TLS.
 services:
   - type: web
     runtime: static
     name: tome-nota-publico
     repo: https://github.com/ppaulomaciel32-cell/tome
     branch: public-site-github-supabase
-    buildCommand: echo 'Static HTML site; no build step'
-    staticPublishPath: public-site
+    buildCommand: node scripts/build-public-site.mjs
+    staticPublishPath: dist-public
     autoDeployTrigger: commit
+    domains:
+      - tomenotanews.com.br
+      - www.tomenotanews.com.br
+    envVars:
+      - key: SITE_URL
+        value: https://tomenotanews.com.br
+      - key: NODE_VERSION
+        value: "22"
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
     headers:
       - path: /*
         name: X-Frame-Options

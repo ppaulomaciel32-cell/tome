@@ -1,0 +1,9 @@
+# Use with: docker compose -f docker-compose.yml -f docker-compose.existing-proxy.yml ...
+# Keep the host nginx running. Do not enable the standalone-proxy profile here.
+services:
+  bot-whatsapp:
+    ports:
+      - "127.0.0.1:${BOT_BIND_PORT:-18080}:8080"
+  nginx:
+    profiles:
+      - standalone-proxy
