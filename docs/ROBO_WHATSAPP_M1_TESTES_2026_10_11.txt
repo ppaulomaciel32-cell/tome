@@ -1,0 +1,114 @@
+TomeZap — evidências do marco WhatsApp QR
+Executado em 2026-10-11T19:28:19.866304-03:00
+
+Não houve pareamento nem envio real. Supabase Auth e WhatsApp simulados nos testes.
+
+COMANDO: node --test tests/whatsapp-bridge.test.mjs tests/whatsapp-panel.test.mjs tests/panel-auth.test.mjs tests/ingest.test.mjs tests/ssg.test.mjs tests/public-site.test.cjs
+✔ invalid or absent token cannot reach database (13.40115ms)
+✔ non-object JSON fails before any database call (11.075955ms)
+✔ reject incomplete article, script URL, bad locality and future revision (1.575002ms)
+✔ transaction and rebuild return a concrete URL; token is not sent to rebuild (6.611572ms)
+✔ a failed rebuild is reported as pending, never as live (3.104161ms)
+✔ missing deployment configuration blocks mutation (2.313701ms)
+✔ editorial audit removes credentials and email (1.177358ms)
+✔ configuração rejeita service_role, host externo e origem insegura (2.79079ms)
+✔ healthcheck informa configuração pendente sem expor chaves (52.63621ms)
+✔ rotas privadas recusam visitantes e cookies inventados (14.276548ms)
+✔ login do dono cria cookie protegido e não entrega tokens ao navegador (21.82299ms)
+✔ editores autorizados recebem papel de editor, nunca de dono (5.499473ms)
+✔ e-mail fora da lista não chega ao Supabase (3.651631ms)
+✔ senha incorreta recebe erro genérico sem detalhes do provedor (8.153879ms)
+✔ e-mail não confirmado, usuário anônimo e identidade trocada são recusados (11.869669ms)
+✔ não contorna segundo fator já configurado na conta (7.697247ms)
+✔ origem externa, origem ausente e HTTP em produção são bloqueados (10.776995ms)
+✔ preflight permite apenas a origem exata e os métodos esperados (3.430084ms)
+✔ corpo malformado e formulário grande são recusados (6.952597ms)
+✔ limite de tentativas não pode ser driblado com X-Forwarded-For (29.188095ms)
+✔ renovação simultânea usa o refresh token uma única vez (27.998133ms)
+✔ sessão expira após 30 minutos sem uso (7.870656ms)
+✔ identidade revalidada bloqueia conta que perdeu confirmação (4.367967ms)
+✔ logout exige CSRF e revoga só a sessão local do painel (7.8905ms)
+✔ falha de rede não mostra segredos nem libera o painel (4.103849ms)
+✔ server search reaches a published story outside the first 60 of 95 fixtures (404.342749ms)
+✔ pagination uses exact Content-Range totals and requests 24 rows per page (10.028845ms)
+✔ an unavailable exact count shows an error instead of inventing the total (3.564405ms)
+✔ search debounces and aborts old requests; late responses cannot replace newer results (343.232308ms)
+✔ short searches quote PostgREST delimiters and preserve literal wildcard characters (1705.120968ms)
+✔ contact email appears only for a valid configured address (3.343992ms)
+✔ seven HTML pages have metadata, one h1 and complete shared legal links (3.148698ms)
+✔ public code contains only the anon JWT and narrowly selected fields (4.474071ms)
+✔ AdSense is blocked before consent and after essential-only choice (7.211885ms)
+✔ valid client loads only after accepting; each slot is queued once (2.597214ms)
+✔ saved refusal persists across pages; invalid consent and unavailable storage fail closed (9.869736ms)
+✔ placeholder clients never load ads, and placeholder slots are not queued (1.297922ms)
+✔ individual article is queried by slug, safely rendered, with live metadata and NewsArticle (11.273917ms)
+✔ missing article gets noindex and a single h1; network errors show a recovery link (5.244003ms)
+✔ contact uses POST minimal, trimmed fields, no data read, and duplicate-submit guard (1.355749ms)
+✔ headers, robots, sitemap and contact SQL are scoped and explicit (0.566758ms)
+✔ SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages (114.503677ms)
+✔ configuração exige aprovação humana e separa chip dos editores (1.978777ms)
+✔ cofre salva buffers, credenciais e chaves Signal; reabre após reinício sem texto privado (43.367378ms)
+✔ cofre com chave errada recusa abertura e preserva dados (4.158766ms)
+✔ não conecta sem configuração e sem confirmação de chip dedicado (6.142073ms)
+✔ QR privado expira, código alternativo usa só o número configurado e status não vaza ambos (5.196064ms)
+✔ chip pessoal escaneado por engano é bloqueado (3.935775ms)
+✔ grupo é validado por ID e membros; outros grupos não são listados (4.015941ms)
+✔ grupo confirmado não pode ser trocado por outro homônimo (4.345069ms)
+✔ apenas remetente verificado do grupo autorizado recebe STATUS (7.920525ms)
+✔ APROVAR, EDITAR e REELS não publicam neste marco (7.123165ms)
+✔ todas as mensagens, incluindo teste, respeitam limite persistente de 20 por hora (26.505591ms)
+✔ reconexão usa backoff, restartRequired reconecta e logout não apaga sessão (5.167134ms)
+✔ sessão registrada retoma sem pedir novo QR (3.63056ms)
+✔ API interna exige segredo; saúde nunca expõe QR nem informa redação pronta (40.212196ms)
+✔ biblioteca real gera PNG QR local, sem conectar WhatsApp (33.402926ms)
+✔ backup consistente mantém sessão criptografada enquanto o cofre está aberto (8.599584ms)
+✔ QR, código e grupos exigem sessão; página redireciona visitante ao login (80.963492ms)
+✔ editor vê somente estado, nunca QR nem controles de conexão (38.115337ms)
+✔ dono acessa tela privada sem cache com políticas restritas e QR separado do HTML (13.081577ms)
+✔ mutações de pareamento exigem CSRF e origem autorizada (28.482762ms)
+✔ GET do pareamento no mesmo domínio exige Host e Sec-Fetch-Site corretos (18.504816ms)
+✔ ponte interna fixa destino, mantém token no servidor e filtra erros brutos (2.489427ms)
+✔ limita pedidos repetidos para gerar QR e enviar teste (26.164993ms)
+✔ logs das dependências não imprimem sessões; log próprio só aceita eventos fixos (0.612059ms)
+ℹ tests 66
+ℹ suites 0
+ℹ pass 66
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2669.779042
+
+COMANDO: PANEL_CHROMIUM_PATH=<Chrome de testes> node --test tests/panel-ui.test.mjs tests/whatsapp-ui.test.mjs
+▶ navegador: prévia, celular, login e bloqueio de sessão
+  ✔ prévia navega por seis módulos sem buscar dados nem publicar (966.315214ms)
+  ✔ prévia offline inclui a tela de login sem transmitir credenciais (519.699358ms)
+  ✔ celular mantém navegação e conteúdo sem rolagem lateral (1217.560723ms)
+  ✔ login real só abre a área depois de validar sessão e rota protegida (548.112115ms)
+✔ navegador: prévia, celular, login e bloqueio de sessão (3466.161202ms)
+▶ navegador: pareamento privado e prévia responsiva
+  ✔ prévia em desktop e celular não envia dados, não oferece QR fictício e não transborda (888.682827ms)
+  ✔ pareamento exige confirmação de chip; QR e código somem depois de conectar (698.776683ms)
+  ✔ grupo só é confirmado pela pessoa e teste envia uma única chamada explícita (229.340346ms)
+  ✔ perda de sessão remove QR e bloqueia controles (257.474925ms)
+✔ navegador: pareamento privado e prévia responsiva (2521.499958ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4116.593872
+
+COMANDO: node scripts/build-public-site.mjs
+{"articles":0,"localities":6,"out":"/workspace/scratch/e70bc0559a4c/tome-nota-supabase-gh/dist-public"}
+
+COMANDO: npm audit --omit=dev --json (no componente whatsapp-bridge)
+{"info": 0, "low": 0, "moderate": 0, "high": 0, "critical": 0, "total": 0}
+
+Verificação adicional observada:
+Processo Node real: /livez HTTP 200; estado awaiting_configuration; publicação false; sem conectar WhatsApp.
+Encerramento controlado: 0; chaves ausentes da saída.
+YAML carregado com PyYAML; tmpfs como strings; novo serviço sem porta pública declarada.
+Docker disponível: False; nginx disponível: False. Imagens Docker/proxy não executados.

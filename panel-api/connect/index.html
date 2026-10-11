@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Conectar WhatsApp · TomeZap</title>
+<link rel="stylesheet" href="/conectar/connection.css">
+<script type="module" src="/conectar/connection.mjs"></script>
+</head>
+<body>
+<header class="topbar"><a class="brand" href="https://tomezap.com.br/admin/#whatsapp"><span class="mark">tn</span><span>TomeZap<small>CONTROLE DA REDAÇÃO</small></span></a><a class="back" href="https://tomezap.com.br/admin/#whatsapp">Voltar ao painel <span aria-hidden="true">↗</span></a></header>
+<main>
+<div class="heading"><div><p class="eyebrow">WHATSAPP · PRIMEIRA CONEXÃO</p><h1>Sua redação começa<br>com uma conversa.</h1><p>Conecte o chip do robô e escolha o grupo onde vocês vão aprovar as notícias.</p></div><span class="badge" id="state-label">Verificando conexão</span></div>
+<div id="preview-notice" class="preview-notice" hidden>PRÉVIA VISUAL · Nenhuma conta está conectada e nenhum dado é enviado.</div>
+<div class="notice"><span class="notice-icon" aria-hidden="true">!</span><div><strong>Use um chip exclusivo para o robô.</strong><p>Esta conexão por QR Code não é oficial do WhatsApp e pode causar bloqueio do número. Use um chip dedicado e poucos envios. Isso reduz a exposição do seu número pessoal, mas não garante que o robô não seja bloqueado.</p></div></div>
+<div class="connection-layout">
+<section class="card pairing-card" aria-labelledby="pair-title"><div class="card-heading"><span class="step">01</span><div><p class="eyebrow">CONECTAR O CHIP</p><h2 id="pair-title">Um celular. Um QR Code.</h2></div></div>
+<p>Abra o WhatsApp do <strong>chip dedicado</strong>. Toque em <strong>Aparelhos conectados → Conectar aparelho</strong>.</p>
+<div class="qr-area" id="qr-area"><div class="qr-placeholder" id="qr-placeholder"><span class="scan-symbol" aria-hidden="true">▧</span><strong>Seu QR aparecerá aqui</strong><p>Inicie a conexão para gerar um código<br>que só você pode ver.</p></div><img id="qr-image" width="320" height="320" alt="QR Code privado para conectar o chip do robô" hidden><div id="pair-code" hidden><small>CÓDIGO DE PAREAMENTO</small><strong id="code-value"></strong><p>Digite no WhatsApp do chip dedicado.</p></div></div>
+<p id="pair-expiry" class="muted centered">Nenhum QR Code foi gerado.</p>
+<label class="check"><input type="checkbox" id="dedicated-confirm"><span>Estou usando um chip exclusivo para o robô.</span></label>
+<div class="actions"><button id="start" class="button primary" disabled>Gerar QR Code <span aria-hidden="true">↗</span></button><button id="phone" class="button secondary" disabled>Usar código no celular</button></div>
+<p class="muted">Número configurado: <strong id="dedicated-number">aguardando configuração</strong>. A sessão ficará salva no servidor.</p>
+</section>
+<aside class="right-column">
+<section class="card" aria-labelledby="group-title"><div class="card-heading"><span class="step">02</span><div><p class="eyebrow">ESCOLHER O GRUPO</p><h2 id="group-title">Comando Tome Nota</h2></div></div>
+<p>Depois de conectar, adicione o número do robô ao grupo pelo seu celular. Confira os participantes antes de confirmar.</p>
+<div class="group-state"><span class="group-symbol" aria-hidden="true">◉</span><div><strong id="group-status">Aguardando conexão do chip</strong><small id="group-detail">Somente os editores autorizados poderão enviar comandos.</small></div></div>
+<button id="load-groups" class="button secondary full" disabled>Buscar meu grupo</button>
+<form id="group-form" hidden><label for="group-select">Grupo encontrado</label><select id="group-select" required></select><label class="check"><input id="group-confirm" type="checkbox" required><span>Conferi o grupo e os participantes no celular.</span></label><button class="button primary full" type="submit">Confirmar este grupo</button></form>
+<button id="test-send" class="button secondary full" disabled>Enviar mensagem de teste ao grupo</button>
+<p class="muted">O teste envia uma única mensagem para o grupo confirmado.</p>
+</section>
+<section class="approval-card"><span class="approval-icon" aria-hidden="true">✓</span><p class="eyebrow">VOCÊS DECIDEM O QUE VAI AO AR</p><h2>Primeiro a prévia.<br>Depois, a aprovação.</h2><p>Nesta etapa, apenas a conexão é preparada. A busca, a redação e a publicação serão ativadas nos próximos módulos.</p><span class="approval-tag">Publicação ainda bloqueada</span></section>
+</aside>
+</div>
+<p id="message" role="status" aria-live="polite"></p>
+<footer><span>TOME NOTA NEWS · CEARÁ</span><span>Acesso exclusivo do dono · até 20 mensagens por hora</span></footer>
+</main>
+</body></html>

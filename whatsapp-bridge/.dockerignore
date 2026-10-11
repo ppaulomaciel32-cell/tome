@@ -1,0 +1,8 @@
+.env
+.env.*
+node_modules
+session
+backups
+*.sqlite*
+*.log
+README.md

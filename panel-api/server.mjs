@@ -2,7 +2,9 @@ import http from 'node:http';
 import {isIP} from 'node:net';
 import {createHash, timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {readFileSync} from 'node:fs';
 import {createAuth, PanelError, normalizeEmail} from './auth.mjs';
+import {createWhatsAppClient} from './whatsapp.mjs';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function loadConfig(env = process.env) {
@@ -20,7 +22,13 @@ export function loadConfig(env = process.env) {
   const owner = normalizeEmail(env.PANEL_OWNER_EMAIL);
   const editors = (env.PANEL_EDITOR_EMAILS || '').split(',').map(normalizeEmail).filter(Boolean);
   if ((owner && !emailPattern.test(owner)) || editors.some(e => !emailPattern.test(e))) throw Error('E-mail autorizado inválido.');
+  const agentUrl = env.AGENT_PUBLIC_URL || 'https://bot.tomezap.com.br';
+  if(agentUrl !== 'https://bot.tomezap.com.br') throw Error('AGENT_PUBLIC_URL precisa ser https://bot.tomezap.com.br.');
+  const waUrl=env.WA_BRIDGE_URL || '', waToken=env.WA_BRIDGE_TOKEN || '';
+  if(waUrl && waUrl!=='http://whatsapp:3090')throw Error('WA_BRIDGE_URL precisa apontar para o serviço privado whatsapp.');
+  if(waToken && !/^[a-f0-9]{64}$/i.test(waToken))throw Error('WA_BRIDGE_TOKEN inválido.');
   return {production, siteUrl: site.origin, supabaseUrl, publicKey, owner, editors,
+    agentUrl,waUrl,waToken,waConfigured:Boolean(waUrl && waToken),
     configured: Boolean(owner && publicKey && supabaseUrl), trustProxy: env.PANEL_TRUST_PROXY === 'true'};
 }
 function limiter(now = Date.now) {
@@ -46,8 +54,15 @@ const sameSecret = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now} = {}) {
+export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient} = {}) {
   const auth = createAuth(config, {fetchImpl, now}), limit = limiter(now);
+  const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
+  const connectAssets=new Map([
+    ['/conectar',['text/html; charset=utf-8','index.html']],
+    ['/conectar/',['text/html; charset=utf-8','index.html']],
+    ['/conectar/connection.css',['text/css; charset=utf-8','connection.css']],
+    ['/conectar/connection.mjs',['text/javascript; charset=utf-8','connection.mjs']]
+  ].map(([route,[type,file]])=>[route,{type,bytes:readFileSync(new URL('./connect/'+file,import.meta.url))}]));
   return http.createServer({requestTimeout: 15000, headersTimeout: 10000, maxHeaderSize: 16384}, async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -62,11 +77,13 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const path = new URL(req.url, 'http://panel.invalid').pathname;
       // Esta rota confirma apenas o processo local; não anuncia integrações ativas.
       if (path === '/healthz' && req.method === 'GET') return send(200, {ok: true, service: 'tomezap-panel', authConfigured: config.configured});
-      if (!path.startsWith('/painel-api/')) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      const asset=connectAssets.get(path);
+      if (!path.startsWith('/painel-api/') && !asset) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       if (config.production && !(req.socket.encrypted || (config.trustProxy && req.headers['x-forwarded-proto'] === 'https'))) throw new PanelError(403, 'https_required', 'Use uma conexão HTTPS.');
       const origin = req.headers.origin;
-      if (origin !== config.siteUrl) throw new PanelError(403, 'origin_denied', 'Origem não autorizada.');
-      res.setHeader('Access-Control-Allow-Origin', config.siteUrl);
+      const sameOriginRead=req.method==='GET' && !origin && req.headers['sec-fetch-site']==='same-origin' && req.headers.host===new URL(config.agentUrl).host;
+      if (origin ? ![config.siteUrl,config.agentUrl].includes(origin) : !(asset && req.method==='GET') && !sameOriginRead) throw new PanelError(403, 'origin_denied', 'Origem não autorizada.');
+      if(origin)res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       if (req.method === 'OPTIONS') {
         if (!['GET', 'POST'].includes(req.headers['access-control-request-method'])) throw new PanelError(403, 'method_denied', 'Operação não permitida.');
@@ -78,6 +95,14 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const ip = config.trustProxy && typeof proxyIp === 'string' && isIP(proxyIp) ? proxyIp : req.socket.remoteAddress;
       limit('all:' + ip, 120, 60000);
       if (!config.configured) throw new PanelError(503, 'awaiting_connection', 'Aguardando conexão: o acesso seguro ainda precisa ser ativado no servidor.');
+      if(asset && req.method==='GET') {
+        const session=await auth.session(req.headers.cookie);
+        if(session.user.role!=='owner')throw new PanelError(403,'owner_required','Somente o dono pode parear o chip e escolher o grupo.');
+        res.setHeader('Content-Type',asset.type);
+        res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+        return res.end(asset.bytes);
+      }
       if (path === '/painel-api/login' && req.method === 'POST') {
         limit('login:' + ip, 10, 15 * 60000);
         const body = await jsonBody(req);
@@ -87,8 +112,27 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
         res.setHeader('Set-Cookie', result.cookie);
         return send(200, {user: result.user, csrf: result.csrf});
       }
-      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap'].includes(path)) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      const waPaths=new Map([['status','GET'],['pairing','GET'],['groups','GET'],['start','POST'],['pair-code','POST'],['group','POST'],['test','POST']].map(([p,m])=>['/painel-api/whatsapp/'+p,{p,m}]));
+      const waRoute=waPaths.get(path);
+      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap'].includes(path) && !waRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       const session = await auth.session(req.headers.cookie);
+      if(waRoute){
+        if(req.method!==waRoute.m)throw new PanelError(405,'method_denied','Operação não permitida.');
+        if(waRoute.p!=='status' && session.user.role!=='owner')throw new PanelError(403,'owner_required','Somente o dono pode parear o chip e escolher o grupo.');
+        if(waRoute.m==='POST'){
+          if(!sameSecret(req.headers['x-csrf-token'],session.csrf))throw new PanelError(403,'csrf_denied','Atualize a página antes de continuar.');
+          limit('wa-mutation:'+session.user.id,6,60000);
+          return send(200,await wa('/'+waRoute.p,await jsonBody(req)));
+        }
+        if(waRoute.p==='groups')limit('wa-groups:'+session.user.id,6,60000);
+        const data=await wa('/'+waRoute.p);
+        if(waRoute.p==='status'){
+          // Uma mudança futura no provedor não pode vazar QR para editores.
+          const fields=['state','connected','configured','group','dedicatedNumber','authorizedEditors','connectedAt','lastError','publicationEnabled','requiresApproval','cycle'];
+          return send(200,Object.fromEntries(fields.filter(k=>k in data).map(k=>[k,data[k]])));
+        }
+        return send(200,data);
+      }
       if (path === '/painel-api/session' && req.method === 'GET') return send(200, {user: session.user, csrf: session.csrf});
       if (path === '/painel-api/bootstrap' && req.method === 'GET') return send(200, {
         user: session.user, milestone: 1,
@@ -102,6 +146,9 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       throw new PanelError(405, 'method_denied', 'Operação não permitida.');
     } catch (error) {
       if (error.status === 401) res.setHeader('Set-Cookie', auth.clearCookie());
+      if(error.status===401 && ['/conectar','/conectar/'].includes(req.url)) {
+        res.statusCode=303;res.setHeader('Location',config.siteUrl+'/admin/#whatsapp');return res.end();
+      }
       if (error.status === 429) res.setHeader('Retry-After', '900');
       // Não registrar corpo, senha, cookie ou resposta bruta do provedor.
       send(error instanceof PanelError ? error.status : 500, {code: error instanceof PanelError ? error.code : 'internal_error', message: error instanceof PanelError ? error.message : 'Não foi possível concluir. Tente novamente.'});

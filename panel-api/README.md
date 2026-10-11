@@ -148,3 +148,10 @@ requisições HTTP reais ao servidor local e simulam somente o Supabase upstream
 Após a aprovação do visual: biblioteca com armazenamento privado, permissões,
 metadados e histórico. Só depois conectar o envio ao robô. As demais telas atuais
 são estrutura de navegação, não módulos operacionais concluídos.
+
+## Módulo de WhatsApp por QR Code
+
+A integração opcional está em `docker-compose.whatsapp.yml`. A tela `/conectar`
+é servida pela própria API e exige sessão do dono. Editores veem somente o estado
+da conexão. Consulte [a instalação do marco 1](../docs/ROBO_WHATSAPP_MARCO_1.md).
+Este módulo ainda não foi instalado na VPS.
