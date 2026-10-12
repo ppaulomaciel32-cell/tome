@@ -14,7 +14,10 @@ export function loadBridgeConfig(env = process.env) {
   const enabled = env.WA_ENABLED === 'true';
   if (env.AGENTE_REQUER_APROVACAO !== 'true') throw Error('Este robô exige AGENTE_REQUER_APROVACAO=true.');
   if (!/^[a-f0-9]{64}$/i.test(env.WA_BRIDGE_TOKEN || '')) throw Error('Configure um WA_BRIDGE_TOKEN aleatório de 64 caracteres hexadecimais.');
+  const pipelineToken=env.WA_PIPELINE_TOKEN || '';
+  if(pipelineToken && (!/^[a-f0-9]{64}$/.test(pipelineToken) || pipelineToken===env.WA_BRIDGE_TOKEN)) throw Error('WA_PIPELINE_TOKEN deve ser exclusivo, diferente do token do painel.');
   return {enabled, number, allowedNumbers, groupName:'Comando Tome Nota', token:env.WA_BRIDGE_TOKEN,
+    pipelineToken,
     configured:enabled && Boolean(number && allowedNumbers.length), directory:env.WA_SESSION_DIR || '/data/session', key:env.WA_SESSION_KEY};
 }
 
@@ -27,6 +30,11 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   const clearPairing = ()=>{qr=null;pairingCode=null;pairingExpires=0;};
   const record = code => {const events=vault.get('events',[]); events.push({at:new Date(now()).toISOString(),code});vault.put('events',events.slice(-50));lastError=code;};
   const selection = ()=>vault.get('group',null);
+  const cycleState = ()=>{
+    if(!config.pipelineToken)return {state:'not_implemented'};
+    const cycle=vault.get('cycle',null);
+    return cycle ? {...cycle,stale:now()-cycle.at>45*60000} : {state:'awaiting_configuration',stale:true};
+  };
   const online = ()=>{if (state!=='connected' || !socket) fail(409,'not_connected','Conecte o chip dedicado antes de continuar.');};
   const closeSocket = ()=>{generation++; const old=socket;socket=null;groupCache=null;connectingReady=false;clearPairing();try{old?.end();}catch{}};
   const safeEvent = task=>{run(task).catch(()=>{state='error';closeSocket();try{record('storage_or_connection_error');}catch{}});};
@@ -61,6 +69,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     // Reserva antes do envio: falha ou reinício nunca libera mais mensagens que o limite.
     sends.push(now());vault.put('sends',sends);
     const sent=await socket.sendMessage(group.id,{text});
+    if(!sent?.key?.id)fail(503,'delivery_uncertain','O envio não foi confirmado. Confira o grupo e o painel antes de tentar de novo.');
     if(sent?.key?.id && sent.message) vault.put('outbound', [...vault.get('outbound',[]).filter(m=>m.at>now()-3600000),{id:sent.key.id,group:group.id,message:sent.message,at:now()}].slice(-20));
     return {sent:true};
   }
@@ -80,7 +89,10 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const receipt=createHash('sha256').update(group.id+'|'+sender+'|'+key.id).digest('hex');
       if(!vault.claim(receipt,now()))continue;
       try {
-        await sendGroup(command==='STATUS' ? 'WhatsApp conectado. Grupo autorizado. A busca e a redação ainda não estão ativadas. Publicação bloqueada até a implementação e aprovação humana.' : 'Este comando será ativado no módulo de produção. Nenhuma matéria foi publicada.');
+        const cycle=cycleState();
+        const labels={running:'Em apuração',completed:'Último ciclo concluído',skipped:'Último ciclo sem nova matéria',failed:'Último ciclo precisa de atenção',queue_full:'Fila cheia; revise os rascunhos',awaiting_configuration:'Aguardando configuração'};
+        await sendGroup(command==='STATUS' ? (cycle.state==='not_implemented' ? 'WhatsApp conectado. Grupo autorizado. A busca e a redação ainda não estão ativadas. Publicação bloqueada até a implementação e aprovação humana.' :
+          'WhatsApp conectado. '+(cycle.stale?'Ciclo sem atualização recente.':(labels[cycle.state] || 'Ciclo em preparação')+'.')+'\nRascunhos na fila: '+(cycle.pending ?? 'não informado')+'\nÚltima atualização: '+(cycle.at?new Date(cycle.at).toISOString():'pendente')+'\nPublicação bloqueada. Aprovação será ativada no próximo marco.') : 'Este comando será ativado no módulo de aprovação. Nenhuma matéria foi publicada.');
       } catch(error) {if(error.code!=='send_limit') record('send_failed');}
     }
   }
@@ -114,11 +126,46 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   function status() {
     const group=selection();return {state,connected:state==='connected',configured:config.configured,group:group?{id:group.id,name:config.groupName}:null,
       dedicatedNumber:config.number ? '••••'+config.number.slice(-4):null,authorizedEditors:config.allowedNumbers.length,
-      connectedAt,lastError,publicationEnabled:false,requiresApproval:true,cycle:'not_implemented',events:vault.get('events',[]).slice(-5)};
+      connectedAt,lastError,publicationEnabled:false,requiresApproval:true,cycle:cycleState(),events:vault.get('events',[]).slice(-5)};
   }
   return {
     status,
-    health:()=>({ok:state==='connected' && Boolean(selection()),service:'tomezap-whatsapp',whatsapp:state,groupConfigured:Boolean(selection()),publicationEnabled:false,cycle:'not_implemented'}),
+    health:()=>({ok:state==='connected' && Boolean(selection()) && (!config.pipelineToken || (!cycleState().stale && ['completed','skipped','queue_full'].includes(cycleState().state))),service:'tomezap-whatsapp',whatsapp:state,groupConfigured:Boolean(selection()),publicationEnabled:false,cycle:cycleState().state,cycleStale:cycleState().stale ?? false}),
+    pipelineState:()=>({connected:state==='connected',groupConfigured:Boolean(selection())}),
+    cycleStatus:body=>run(()=>{
+      if(!/^[a-f0-9-]{36}$/.test(body?.cycleId || '') || !['running','completed','skipped','failed','queue_full','awaiting_configuration'].includes(body.state)
+        || !Number.isInteger(body.pending) || body.pending<0 || body.pending>10)fail(400,'invalid_cycle','Estado do ciclo inválido.');
+      vault.put('cycle',{state:body.state,pending:body.pending,at:now()});return {ok:true};
+    }),
+    preview:body=>run(async()=>{
+      const validId=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+      const locals={'sao-goncalo':'São Gonçalo do Amarante',pecem:'Pecém',taiba:'Taíba',croata:'Croatá',paracuru:'Paracuru',regiao:'Região'};
+      if(!validId.test(body?.id || '') || body.revision!==1 || typeof body.titulo!=='string' || body.titulo.length<3 || body.titulo.length>300
+        || typeof body.resumo!=='string' || body.resumo.length<10 || body.resumo.length>500 || !Object.hasOwn(locals,body.localidade)
+        || !Array.isArray(body.sources) || body.sources.length<2 || body.sources.length>5)fail(400,'invalid_preview','Prévia inválida.');
+      for(const source of body.sources){
+        let u;try{u=new URL(source.url);}catch{fail(400,'invalid_preview','Fonte inválida.');}
+        if(u.protocol!=='https:' || u.username || u.password || u.hash || source.url.length>1500 || typeof source.name!=='string' || source.name.length<2 || source.name.length>100)fail(400,'invalid_preview','Fonte inválida.');
+      }
+      const key='preview:'+body.id+':1', previous=vault.get(key,null);
+      if(previous==='sent')return {sent:true,duplicate:true};
+      if(previous)fail(409,'delivery_uncertain','Prévia já tentada sem confirmação. Confira o painel.');
+      online();const group=selection();if(!group)fail(409,'no_group','Confirme o grupo.');await members(await metadata(group.id,true));
+      vault.put(key,'claimed');
+      const clean=value=>value.replace(/[\r\n\x00-\x1f\x7f]/g,' ').trim();
+      await sendGroup('RASCUNHO — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
+        +'\n\nLocalidade: '+locals[body.localidade]+'\nFontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n')
+        +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id
+        +'\n\nNada publicado. Comandos de aprovação e capa serão ativados nos próximos marcos.');
+      vault.put(key,'sent');return {sent:true};
+    }),
+    notice:body=>run(async()=>{
+      const messages={weak_sources:'Fonte fraca: não encontrei duas fontes independentes aprovadas. A pauta parou antes da redação.',collect_failed:'Três falhas seguidas na coleta. Confira as fontes no servidor.',write_failed:'Três falhas seguidas na redação. Confira o modelo e a cota gratuita.',store_failed:'Três falhas seguidas ao salvar. Confira o armazenamento privado.',preview_failed:'Três falhas seguidas no envio de prévias. Os rascunhos salvos continuam no painel.'};
+      if(!messages[body?.code] || !/^[a-f0-9-]{36}$/.test(body.cycleId || ''))fail(400,'invalid_notice','Aviso inválido.');
+      const key='notice:'+body.cycleId+':'+body.code;
+      if(vault.get(key))return {duplicate:true};
+      vault.put(key,'claimed');await sendGroup(messages[body.code]+' Nenhuma publicação automática foi feita.');vault.put(key,'sent');return {sent:true};
+    }),
     pairing:()=>({...status(),qr:pairingExpires>now()?qr:null,pairingCode:pairingExpires>now()?pairingCode:null,expiresAt:pairingExpires>now()?new Date(pairingExpires).toISOString():null}),
     start:body=>run(async()=>{
       if(!config.configured)fail(503,'awaiting_configuration','Configure o chip dedicado, os editores e o cofre na VPS.');

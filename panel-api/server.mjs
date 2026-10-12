@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {readFileSync} from 'node:fs';
 import {createAuth, PanelError, normalizeEmail} from './auth.mjs';
 import {createWhatsAppClient} from './whatsapp.mjs';
+import {createDraftReader} from './drafts.mjs';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function loadConfig(env = process.env) {
@@ -27,7 +28,11 @@ export function loadConfig(env = process.env) {
   const waUrl=env.WA_BRIDGE_URL || '', waToken=env.WA_BRIDGE_TOKEN || '';
   if(waUrl && waUrl!=='http://whatsapp:3090')throw Error('WA_BRIDGE_URL precisa apontar para o serviço privado whatsapp.');
   if(waToken && !/^[a-f0-9]{64}$/i.test(waToken))throw Error('WA_BRIDGE_TOKEN inválido.');
+  const draftsUrl=env.TNN_DRAFTS_URL || '',draftsToken=env.TNN_DRAFT_READER_TOKEN || '';
+  if(draftsUrl && draftsUrl!==supabaseUrl+'/functions/v1/tnn-drafts')throw Error('TNN_DRAFTS_URL deve usar o mesmo projeto Supabase do painel.');
+  if(draftsToken && !/^[a-f0-9]{64}$/.test(draftsToken))throw Error('TNN_DRAFT_READER_TOKEN inválido.');
   return {production, siteUrl: site.origin, supabaseUrl, publicKey, owner, editors,
+    draftsUrl,draftsToken,
     agentUrl,waUrl,waToken,waConfigured:Boolean(waUrl && waToken),
     configured: Boolean(owner && publicKey && supabaseUrl), trustProxy: env.PANEL_TRUST_PROXY === 'true'};
 }
@@ -54,9 +59,10 @@ const sameSecret = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient} = {}) {
+export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader} = {}) {
   const auth = createAuth(config, {fetchImpl, now}), limit = limiter(now);
   const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
+  const drafts=draftReader || createDraftReader(config,{fetchImpl});
   const connectAssets=new Map([
     ['/conectar',['text/html; charset=utf-8','index.html']],
     ['/conectar/',['text/html; charset=utf-8','index.html']],
@@ -114,8 +120,14 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       }
       const waPaths=new Map([['status','GET'],['pairing','GET'],['groups','GET'],['start','POST'],['pair-code','POST'],['group','POST'],['test','POST']].map(([p,m])=>['/painel-api/whatsapp/'+p,{p,m}]));
       const waRoute=waPaths.get(path);
-      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap'].includes(path) && !waRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      const draftRoute=path.match(/^\/painel-api\/drafts(?:\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}))?$/);
+      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap'].includes(path) && !waRoute && !draftRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       const session = await auth.session(req.headers.cookie);
+      if(draftRoute){
+        if(req.method!=='GET')throw new PanelError(405,'read_only','Nesta etapa, o painel só permite conferir os rascunhos.');
+        limit('draft-read:'+session.user.id,30,60000);
+        return send(200,await drafts(draftRoute[1]));
+      }
       if(waRoute){
         if(req.method!==waRoute.m)throw new PanelError(405,'method_denied','Operação não permitida.');
         if(waRoute.p!=='status' && session.user.role!=='owner')throw new PanelError(403,'owner_required','Somente o dono pode parear o chip e escolher o grupo.');

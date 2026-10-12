@@ -5,7 +5,7 @@ import {BridgeError,createController,loadBridgeConfig} from './controller.mjs';
 import {openVault} from './vault.mjs';
 import {protectProviderLogs,safeLog} from './safe-log.mjs';
 
-export function createBridgeServer({controller,token}) {
+export function createBridgeServer({controller,token,pipelineToken=''}) {
   return http.createServer({requestTimeout:15000,headersTimeout:10000,maxHeaderSize:8192},async(req,res)=>{
     res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store');
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -15,18 +15,20 @@ export function createBridgeServer({controller,token}) {
       // Apenas estado agregado, sem QR, grupo, números, códigos ou credenciais.
       if(path==='/healthz' && req.method==='GET'){const h=controller.health();return send(h.ok?200:503,h);}
       if(path==='/livez' && req.method==='GET')return send(200,{ok:true});
-      const provided=Buffer.from(req.headers['x-bridge-token'] || ''), expected=Buffer.from(token);
-      if(provided.length!==expected.length || !timingSafeEqual(provided,expected))throw new BridgeError(401,'unauthorized','Acesso não autorizado.');
+      const matches=(value,secret)=>{const a=Buffer.from(value || ''),b=Buffer.from(secret || '');return Boolean(secret) && a.length===b.length && timingSafeEqual(a,b);};
+      const producer=matches(req.headers['x-pipeline-token'],pipelineToken);
+      if(!producer && !matches(req.headers['x-bridge-token'],token))throw new BridgeError(401,'unauthorized','Acesso não autorizado.');
       const routes = {
         'GET /status':()=>controller.status(),'GET /pairing':()=>controller.pairing(),'GET /groups':()=>controller.groups(),
         'POST /start':body=>controller.start(body),'POST /pair-code':()=>controller.pairCode(),
         'POST /group':body=>controller.selectGroup(body),'POST /test':()=>controller.test()
       };
-      const action=routes[req.method+' '+path];if(!action)throw new BridgeError(404,'not_found','Endereço não encontrado.');
+      const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
+      const action=(producer?producerRoutes:routes)[req.method+' '+path];if(!action)throw new BridgeError(404,'not_found','Endereço não encontrado.');
       let body={};
       if(req.method==='POST') {
         if(!/^application\/json(?:;|$)/.test(req.headers['content-type']||''))throw new BridgeError(415,'invalid_body','Use JSON.');
-        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>2048)throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
+        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>(producer?12000:2048))throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
         try{body=JSON.parse(Buffer.concat(chunks));if(!body || Array.isArray(body)||typeof body!=='object')throw Error();}catch{throw new BridgeError(400,'invalid_body','Dados inválidos.');}
       }
       send(200,await action(body));
@@ -43,7 +45,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
     const adapter=await import('./baileys-adapter.mjs');
     const vault=openVault({directory:config.directory,key:config.key,codec:adapter.BufferJSON});
     const controller=createController({config,vault,auth:vault.auth(adapter.initAuthCreds,adapter.reviveAppState),socketFactory:adapter.socketFactory,qrEncoder:adapter.qrEncoder});
-    const server=createBridgeServer({controller,token:config.token});
+    const server=createBridgeServer({controller,token:config.token,pipelineToken:config.pipelineToken});
     server.listen(3090,'0.0.0.0',()=>safeLog('bridge_started'));
     await controller.resume();
     let stopping=false;

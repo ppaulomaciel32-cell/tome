@@ -1,0 +1,73 @@
+# Overlay opcional, depois dos arquivos base e whatsapp.
+# Usa recursos existentes da VPS. Não muda serviços ou volumes anteriores.
+services:
+  redacao:
+    build:
+      context: ../news-agent
+      dockerfile: Dockerfile.autonomous
+    env_file: ../news-agent/.env.autonomous
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ../news-agent/autonomous-sources.json
+        target: /app/config/sources.json
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [default, redacao_privada]
+    depends_on:
+      redacao-redis:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-m", "tnn.autonomous.worker", "--healthcheck"]
+      interval: 30s
+      timeout: 8s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+  redacao-redis:
+    image: redis:7.4-alpine
+    user: redis
+    environment:
+      REDACTION_REDIS_PASSWORD: ${REDACTION_REDIS_PASSWORD:?Configure o segredo do Redis privado}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        case "$$REDACTION_REDIS_PASSWORD" in *[!a-f0-9]*|'') exit 1 ;; esac
+        [ "$${#REDACTION_REDIS_PASSWORD}" -eq 64 ]
+        umask 077
+        printf 'requirepass %s\nappendonly yes\nappendfsync everysec\nsave 900 1\ndir /data\nmaxmemory 64mb\nmaxmemory-policy noeviction\n' "$$REDACTION_REDIS_PASSWORD" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    volumes: [redacao_fila:/data]
+    networks: [redacao_privada]
+    # Sem ports: inacessível pela internet e pelos serviços fora desta rede.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDACTION_REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+volumes:
+  redacao_fila:
+networks:
+  redacao_privada:
+    internal: true

@@ -12,6 +12,7 @@ import {createBridgeServer} from '../whatsapp-bridge/server.mjs';
 import {BufferJSON,initAuthCreds,reviveAppState,qrEncoder} from '../whatsapp-bridge/baileys-adapter.mjs';
 const number='5511999990000',owner='5511999990001',editor='5511999990002',group='120363123456789000@g.us';
 const config=()=>loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner+','+editor,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'});
+const draftPreview=()=>({id:crypto.randomUUID(),revision:1,titulo:'Simulação de prévia privada',resumo:'Este conteúdo sintético não representa uma notícia real.',localidade:'regiao',sources:[{name:'Fonte A',url:'https://a.example/test'},{name:'Fonte B',url:'https://b.example/test'}]});
 async function vaultFixture(t){const directory=await mkdtemp(join(tmpdir(),'tnn-wa-'));const key=randomBytes(32).toString('hex');let vault=openVault({directory,key,codec:BufferJSON});t.after(async()=>{try{vault.close();}catch{}await rm(directory,{recursive:true,force:true});});return {directory,key,vault,reopen(){vault.close();vault=openVault({directory,key,codec:BufferJSON});return vault;}};}
 async function fixture(t,{cfg=config(),wrongNumber=false}={}){
   const v=await vaultFixture(t);const auth=v.vault.auth(()=>({registered:false}),value=>value);
@@ -32,6 +33,46 @@ test('configuração exige aprovação humana e separa chip dos editores',()=>{
   assert.throws(()=>loadBridgeConfig({...base,WA_ALLOWED_SENDERS:number}));
   assert.throws(()=>loadBridgeConfig({...base,WA_BRIDGE_TOKEN:'short'}));
   assert.equal(loadBridgeConfig({...base,WA_ALLOWED_SENDERS:''}).configured,false);
+});
+test('token do ciclo não pode ser igual ao token do painel',()=>{
+  assert.throws(()=>loadBridgeConfig({WA_BRIDGE_TOKEN:'a'.repeat(64),WA_PIPELINE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'}));
+});
+test('prévia usa grupo autorizado, link privado fixo e deduplica por rascunho',async t=>{
+  const f=await fixture(t);const draft=draftPreview();
+  await assert.rejects(f.c.preview(draft));assert.equal(f.sends.length,0);
+  await f.connect();await f.bind();await f.c.preview(draft);await f.c.preview(draft);
+  assert.equal(f.sends.length,1);assert.equal(f.sends[0].id,group);
+  assert.match(f.sends[0].msg.text,/RASCUNHO/);assert.match(f.sends[0].msg.text,/https:\/\/tomezap.com.br\/admin\/#rascunho\//);
+  assert.match(f.sends[0].msg.text,/Nada publicado/);assert.equal(f.vault.get('preview:'+draft.id+':1'),'sent');
+});
+test('envio incerto de prévia não se repete e fica registrado no cofre',async t=>{
+  const f=await fixture(t);await f.connect();await f.bind();const draft=draftPreview();let attempts=0;
+  f.socket.sendMessage=async()=>{attempts++;throw Error('fixture-network');};
+  await assert.rejects(f.c.preview(draft));await assert.rejects(f.c.preview(draft),e=>e.code==='delivery_uncertain');
+  assert.equal(attempts,1);assert.equal(f.vault.get('preview:'+draft.id+':1'),'claimed');
+});
+test('prévia e avisos compartilham o limite persistente e validam entrada',async t=>{
+  const f=await fixture(t);await f.connect();await f.bind();
+  for(const bad of [{localidade:'constructor'},{revision:2},{sources:[{name:'A',url:'javascript:alert(1)'}]}])await assert.rejects(f.c.preview({...draftPreview(),...bad}),e=>e.code==='invalid_preview');
+  for(let i=0;i<19;i++)await f.c.test();
+  await f.c.preview(draftPreview());assert.equal(f.sends.length,20);
+  await assert.rejects(f.c.notice({cycleId:crypto.randomUUID(),code:'weak_sources'}),e=>e.code==='send_limit');assert.equal(f.sends.length,20);
+});
+test('saúde indica ciclo parado e STATUS mostra pendências sem habilitar publicação',async t=>{
+  const f=await fixture(t,{cfg:{...config(),pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
+  assert.equal(f.c.health().ok,false);
+  await f.c.cycleStatus({cycleId:crypto.randomUUID(),state:'completed',pending:2});assert.equal(f.c.health().ok,true);
+  await f.message();assert.match(f.sends[0].msg.text,/Rascunhos na fila: 2/);assert.equal(f.c.status().publicationEnabled,false);
+  f.advance(46*60000);assert.equal(f.c.health().ok,false);assert.equal(f.c.health().cycleStale,true);
+});
+test('API do produtor não acessa QR, pareamento ou teste do dono',async t=>{
+  const f=await fixture(t);const server=createBridgeServer({controller:f.c,token:'a'.repeat(64),pipelineToken:'b'.repeat(64)});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{server.closeAllConnections();server.close();});const base='http://127.0.0.1:'+server.address().port;
+  const headers={'x-pipeline-token':'b'.repeat(64)};
+  assert.equal((await fetch(base+'/pipeline-state',{headers})).status,200);
+  for(const path of ['/pairing','/status','/groups'])assert.equal((await fetch(base+path,{headers})).status,404);
+  assert.equal((await fetch(base+'/start',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'})).status,404);
+  assert.equal((await fetch(base+'/preview',{method:'POST',headers:{'x-bridge-token':'a'.repeat(64),'Content-Type':'application/json'},body:'{}'})).status,404);
 });
 test('cofre salva buffers, credenciais e chaves Signal; reabre após reinício sem texto privado',async t=>{
   const f=await vaultFixture(t);const a=f.vault.auth(initAuthCreds,reviveAppState);

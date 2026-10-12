@@ -144,15 +144,18 @@ class Gemini:
 
     def __init__(self,net=None): self.net=net or Net()
     def write(self,headline,sources,correction='',previous=None):
-        model=gemini_model()
         prompt=Path(__file__).with_name('editorial.txt').read_text()
         data={'pauta':headline,'fontes':sources,'correcao_solicitada':correction,'versao_anterior':previous}
+        return parse_article(self.generate(prompt,data,self.response_schema),sources)
+
+    def generate(self,prompt,data,schema):
+        model=gemini_model()
         try:
             result=self.net.json(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',{
                 'systemInstruction':{'parts':[{'text':prompt}]},
                 'contents':[{'role':'user','parts':[{'text':json.dumps(data,ensure_ascii=False)}]}],
                 'generationConfig':{'temperature':0.3,'maxOutputTokens':4096,'candidateCount':1,
-                    'responseFormat':{'text':{'mimeType':'APPLICATION_JSON','schema':self.response_schema}}}},
+                    'responseFormat':{'text':{'mimeType':'APPLICATION_JSON','schema':schema}}}},
                 {'x-goog-api-key':required('GEMINI_API_KEY')},timeout=45,max_bytes=100000)
         except UncertainRequest:
             # A geração pode ter sido processada; não gastar cota duas vezes sem confirmação.
@@ -177,7 +180,7 @@ class Gemini:
             if not content: raise ValueError('empty')
         except (AttributeError,KeyError,IndexError,TypeError,ValueError):
             raise AgentError('O Gemini não entregou uma matéria completa ou liberada para uso.') from None
-        return parse_article(content,sources)
+        return content
 
 class Cloudinary:
     def __init__(self,net=None): self.net=net or Net()

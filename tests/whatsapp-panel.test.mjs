@@ -7,12 +7,12 @@ import {protectProviderLogs,safeLog} from '../whatsapp-bridge/safe-log.mjs';
 async function rawFetch(url,options){return new Promise((resolve,reject)=>{const req=http.request(url,options,res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));});req.on('error',reject);req.end(options.body);});}
 const owner='owner@example.com',editor='editor@example.com';
 async function fixture(t,email=owner){
-  const calls=[];const cfg=loadConfig({SITE_URL:'https://tomezap.com.br',SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_fixture',PANEL_OWNER_EMAIL:owner,PANEL_EDITOR_EMAILS:editor,PANEL_TRUST_PROXY:'true'});
-  const server=createPanelServer({config:cfg,fetchImpl:async url=>url.includes('/user')?Response.json({id:email,email,email_confirmed_at:'2026-10-11'}):Response.json({access_token:'private-fixture-access',refresh_token:'private-fixture-refresh',expires_in:3600}),whatsappClient:async(path,body)=>{calls.push({path,body});return {state:'awaiting_scan',qr:'data:image/png;base64,Zml4dHVyZQ==',publicationEnabled:false};}});
+  const calls=[],draftCalls=[];const cfg=loadConfig({SITE_URL:'https://tomezap.com.br',SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_fixture',PANEL_OWNER_EMAIL:owner,PANEL_EDITOR_EMAILS:editor,PANEL_TRUST_PROXY:'true'});
+  const server=createPanelServer({config:cfg,fetchImpl:async url=>url.includes('/user')?Response.json({id:email,email,email_confirmed_at:'2026-10-11'}):Response.json({access_token:'private-fixture-access',refresh_token:'private-fixture-refresh',expires_in:3600}),draftReader:async id=>{draftCalls.push(id);return id?{id,titulo:'Rascunho privado'}:{drafts:[],cycle:null};},whatsappClient:async(path,body)=>{calls.push({path,body});return {state:'awaiting_scan',qr:'data:image/png;base64,Zml4dHVyZQ==',publicationEnabled:false};}});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{server.close(r);server.closeAllConnections();}));const base='http://127.0.0.1:'+server.address().port;
   const request=(path,{method='GET',body,cookie,csrf,origin=cfg.siteUrl,extra={}}={})=>(extra.Host ? rawFetch : fetch)(base+path,{redirect:'manual',method,headers:{'X-Forwarded-Proto':'https',...(origin?{Origin:origin}:{}),...(cookie?{Cookie:cookie}:{}),...(csrf?{'X-CSRF-Token':csrf}:{}),...(body?{'Content-Type':'application/json'}:{}),...extra},...(body?{body:JSON.stringify(body)}:{})});
   const response=await request('/painel-api/login',{method:'POST',body:{email,password:'fixture-only'}});const session=await response.json();const cookie=response.headers.get('set-cookie').split(';')[0];
-  return {request,calls,cookie,csrf:session.csrf};
+  return {request,calls,draftCalls,cookie,csrf:session.csrf};
 }
 test('QR, código e grupos exigem sessão; página redireciona visitante ao login',async t=>{
   const f=await fixture(t);
@@ -61,4 +61,19 @@ test('logs das dependências não imprimem sessões; log próprio só aceita eve
   const printed=[],target={};for(const method of ['log','info','debug','warn','error','trace','dir','dirxml','table','assert'])target[method]=value=>printed.push(value);
   protectProviderLogs(target);for(const method of Object.keys(target))target[method]({session:'private-fixture'});assert.equal(printed.length,0);
   safeLog('private-fixture',{write:value=>printed.push(value)});assert.equal(printed.length,0);safeLog('bridge_started',{write:value=>printed.push(value)});assert.equal(JSON.parse(printed[0]).event,'bridge_started');
+});
+
+test('rascunhos exigem sessão autorizada e não aceitam mutações',async t=>{
+  for(const email of [owner,editor]){
+    const f=await fixture(t,email);const id=crypto.randomUUID();
+    assert.equal((await f.request('/painel-api/drafts')).status,401);
+    assert.equal((await f.request('/painel-api/drafts/'+id)).status,401);
+    assert.equal(f.draftCalls.length,0);
+    const response=await f.request('/painel-api/drafts/'+id,{cookie:f.cookie});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+    assert.equal((await response.json()).id,id);
+    assert.equal((await f.request('/painel-api/drafts/'+id,{cookie:f.cookie,method:'POST',body:{status:'published'}})).status,405);
+    assert.equal(f.draftCalls.length,1);
+    assert.equal((await f.request('/painel-api/drafts/'+id,{cookie:f.cookie,origin:'https://chat.tomezap.com.br'})).status,403);
+    assert.equal(f.draftCalls.length,1);
+  }
 });

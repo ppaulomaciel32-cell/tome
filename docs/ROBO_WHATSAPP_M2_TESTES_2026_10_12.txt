@@ -1,0 +1,201 @@
+TomeZap — evidências do marco 2
+Data: 12/10/2026, horário de Fortaleza.
+
+Testes executados localmente. Não constituem ativação real na VPS.
+Gemini, WhatsApp e identidade remota simulados; nenhuma mensagem real ou publicação.
+Postgres/PGlite, SQLite, Redis/Lua em memória, HTTP Node e Chromium reais.
+
+NODE — 80 testes, inclui Postgres local
+✔ rascunhos: segredo inválido, leitor e ação publish nunca escrevem (18.412003ms)
+✔ rascunhos: configuração parcial e tokens iguais bloqueiam tudo (1.862671ms)
+✔ rascunhos: dados incompletos e falsas evidências recusados antes do banco (42.631935ms)
+✔ rascunhos: gravação chama apenas RPC isolada, sem publicação ou rebuild (18.562272ms)
+✔ rascunhos: contexto de leitor não retorna o histórico de deduplicação (9.889339ms)
+✔ rascunhos: erros do provedor não expõem corpo, SQL ou credenciais (18.843296ms)
+✔ Postgres local: RLS, repetição de ciclo, deduplicação e transação atômica (1803.412435ms)
+✔ invalid or absent token cannot reach database (97.308856ms)
+✔ non-object JSON fails before any database call (10.810519ms)
+✔ reject incomplete article, script URL, bad locality and future revision (1.273885ms)
+✔ transaction and rebuild return a concrete URL; token is not sent to rebuild (7.061077ms)
+✔ a failed rebuild is reported as pending, never as live (12.810818ms)
+✔ missing deployment configuration blocks mutation (18.577212ms)
+✔ editorial audit removes credentials and email (1.39121ms)
+✔ configuração rejeita service_role, host externo e origem insegura (7.063856ms)
+✔ healthcheck informa configuração pendente sem expor chaves (229.371932ms)
+✔ rotas privadas recusam visitantes e cookies inventados (19.324733ms)
+✔ login do dono cria cookie protegido e não entrega tokens ao navegador (33.852947ms)
+✔ editores autorizados recebem papel de editor, nunca de dono (13.829983ms)
+✔ e-mail fora da lista não chega ao Supabase (7.603416ms)
+✔ senha incorreta recebe erro genérico sem detalhes do provedor (8.422724ms)
+✔ e-mail não confirmado, usuário anônimo e identidade trocada são recusados (18.797775ms)
+✔ não contorna segundo fator já configurado na conta (13.826213ms)
+✔ origem externa, origem ausente e HTTP em produção são bloqueados (15.979061ms)
+✔ preflight permite apenas a origem exata e os métodos esperados (3.959063ms)
+✔ corpo malformado e formulário grande são recusados (10.176289ms)
+✔ limite de tentativas não pode ser driblado com X-Forwarded-For (39.701953ms)
+✔ renovação simultânea usa o refresh token uma única vez (28.594284ms)
+✔ sessão expira após 30 minutos sem uso (8.772164ms)
+✔ identidade revalidada bloqueia conta que perdeu confirmação (6.91632ms)
+✔ logout exige CSRF e revoga só a sessão local do painel (12.007165ms)
+✔ falha de rede não mostra segredos nem libera o painel (7.873033ms)
+✔ server search reaches a published story outside the first 60 of 95 fixtures (551.704304ms)
+✔ pagination uses exact Content-Range totals and requests 24 rows per page (12.962732ms)
+✔ an unavailable exact count shows an error instead of inventing the total (4.144259ms)
+✔ search debounces and aborts old requests; late responses cannot replace newer results (356.248822ms)
+✔ short searches quote PostgREST delimiters and preserve literal wildcard characters (1720.332799ms)
+✔ contact email appears only for a valid configured address (3.234949ms)
+✔ seven HTML pages have metadata, one h1 and complete shared legal links (2.788904ms)
+✔ public code contains only the anon JWT and narrowly selected fields (2.34182ms)
+✔ AdSense is blocked before consent and after essential-only choice (2.13173ms)
+✔ valid client loads only after accepting; each slot is queued once (1.590703ms)
+✔ saved refusal persists across pages; invalid consent and unavailable storage fail closed (3.383477ms)
+✔ placeholder clients never load ads, and placeholder slots are not queued (3.51268ms)
+✔ individual article is queried by slug, safely rendered, with live metadata and NewsArticle (6.832195ms)
+✔ missing article gets noindex and a single h1; network errors show a recovery link (3.363717ms)
+✔ contact uses POST minimal, trimmed fields, no data read, and duplicate-submit guard (1.484487ms)
+✔ headers, robots, sitemap and contact SQL are scoped and explicit (0.375378ms)
+✔ SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages (286.734994ms)
+✔ configuração exige aprovação humana e separa chip dos editores (1.980169ms)
+✔ token do ciclo não pode ser igual ao token do painel (0.216215ms)
+✔ prévia usa grupo autorizado, link privado fixo e deduplica por rascunho (22.87521ms)
+✔ envio incerto de prévia não se repete e fica registrado no cofre (5.87885ms)
+✔ prévia e avisos compartilham o limite persistente e validam entrada (24.097188ms)
+✔ saúde indica ciclo parado e STATUS mostra pendências sem habilitar publicação (13.800057ms)
+✔ API do produtor não acessa QR, pareamento ou teste do dono (48.640269ms)
+✔ cofre salva buffers, credenciais e chaves Signal; reabre após reinício sem texto privado (37.389153ms)
+✔ cofre com chave errada recusa abertura e preserva dados (12.020994ms)
+✔ não conecta sem configuração e sem confirmação de chip dedicado (12.947426ms)
+✔ QR privado expira, código alternativo usa só o número configurado e status não vaza ambos (3.763772ms)
+✔ chip pessoal escaneado por engano é bloqueado (5.465849ms)
+✔ grupo é validado por ID e membros; outros grupos não são listados (3.096591ms)
+✔ grupo confirmado não pode ser trocado por outro homônimo (4.137826ms)
+✔ apenas remetente verificado do grupo autorizado recebe STATUS (5.558867ms)
+✔ APROVAR, EDITAR e REELS não publicam neste marco (8.737179ms)
+✔ todas as mensagens, incluindo teste, respeitam limite persistente de 20 por hora (19.057873ms)
+✔ reconexão usa backoff, restartRequired reconecta e logout não apaga sessão (3.236876ms)
+✔ sessão registrada retoma sem pedir novo QR (2.7539ms)
+✔ API interna exige segredo; saúde nunca expõe QR nem informa redação pronta (14.810675ms)
+✔ biblioteca real gera PNG QR local, sem conectar WhatsApp (31.82164ms)
+✔ backup consistente mantém sessão criptografada enquanto o cofre está aberto (20.020852ms)
+✔ QR, código e grupos exigem sessão; página redireciona visitante ao login (126.468249ms)
+✔ editor vê somente estado, nunca QR nem controles de conexão (84.138548ms)
+✔ dono acessa tela privada sem cache com políticas restritas e QR separado do HTML (17.108361ms)
+✔ mutações de pareamento exigem CSRF e origem autorizada (24.480624ms)
+✔ GET do pareamento no mesmo domínio exige Host e Sec-Fetch-Site corretos (21.746181ms)
+✔ ponte interna fixa destino, mantém token no servidor e filtra erros brutos (2.34431ms)
+✔ limita pedidos repetidos para gerar QR e enviar teste (29.631614ms)
+✔ logs das dependências não imprimem sessões; log próprio só aceita eventos fixos (0.628579ms)
+✔ rascunhos exigem sessão autorizada e não aceitam mutações (33.453204ms)
+ℹ tests 80
+ℹ suites 0
+ℹ pass 80
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2847.717183
+
+
+PYTHON — 50 testes
+test_approval_mode_waits_and_correction_keeps_sources (test_agent.AgentTests.test_approval_mode_waits_and_correction_keeps_sources) ... ok
+test_complete_mock_pipeline_order_and_image (test_agent.AgentTests.test_complete_mock_pipeline_order_and_image) ... ok
+test_correction_after_publication_reuses_job_and_source_hash (test_agent.AgentTests.test_correction_after_publication_reuses_job_and_source_hash) ... ok
+test_deploy_not_ready_never_sends_live_url (test_agent.AgentTests.test_deploy_not_ready_never_sends_live_url) ... ok
+test_duplicate_five_minutes_and_72h (test_agent.AgentTests.test_duplicate_five_minutes_and_72h) ... ok
+test_gemini_adapter_uses_official_host_and_editorial_validation (test_agent.AgentTests.test_gemini_adapter_uses_official_host_and_editorial_validation) ... ok
+test_gemini_quota_failure_retries_twice_without_publishing (test_agent.AgentTests.test_gemini_quota_failure_retries_twice_without_publishing) ... ok
+test_json_validation_blocks_unsupported_numbers (test_agent.AgentTests.test_json_validation_blocks_unsupported_numbers) ... ok
+test_missing_photo_uses_default_and_warns (test_agent.AgentTests.test_missing_photo_uses_default_and_warns) ... ok
+test_network_failure_retries_twice_and_does_not_publish (test_agent.AgentTests.test_network_failure_retries_twice_and_does_not_publish) ... ok
+test_photo_then_text_and_audio (test_agent.AgentTests.test_photo_then_text_and_audio) ... ok
+test_preview_escapes_database_and_model_output (test_agent.AgentTests.test_preview_escapes_database_and_model_output) ... ok
+test_repeated_meta_message_does_not_duplicate (test_agent.AgentTests.test_repeated_meta_message_does_not_duplicate) ... ok
+test_status_and_list_commands_do_not_create_jobs (test_agent.AgentTests.test_status_and_list_commands_do_not_create_jobs) ... ok
+test_story_dimensions_weight_and_long_headline (test_agent.AgentTests.test_story_dimensions_weight_and_long_headline) ... ok
+test_three_failed_jobs_trigger_stage_alert (test_agent.AgentTests.test_three_failed_jobs_trigger_stage_alert) ... ok
+test_unauthorized_number_never_creates_job (test_agent.AgentTests.test_unauthorized_number_never_creates_job) ... ok
+test_uncertain_gemini_generation_stops_pipeline_without_publishing (test_agent.AgentTests.test_uncertain_gemini_generation_stops_pipeline_without_publishing) ... ok
+test_weak_sources_warn_before_writing_and_approval_resumes (test_agent.AgentTests.test_weak_sources_warn_before_writing_and_approval_resumes) ... ok
+test_webhook_signature_and_payload_tampering (test_agent.AgentTests.test_webhook_signature_and_payload_tampering) ... ok
+test_ambiguous_generation_not_repeated (test_autonomous.AutonomousTests.test_ambiguous_generation_not_repeated) ... ok
+test_concurrent_worker_cannot_enter_existing_lock (test_autonomous.AutonomousTests.test_concurrent_worker_cannot_enter_existing_lock) ... ok
+test_config_refuses_auto_publish_and_unreviewed_model (test_autonomous.AutonomousTests.test_config_refuses_auto_publish_and_unreviewed_model) ... ok
+test_copied_sources_and_same_publisher_do_not_count_twice (test_autonomous.AutonomousTests.test_copied_sources_and_same_publisher_do_not_count_twice) ... ok
+test_daily_monthly_atomic_limits_and_zero_disable (test_autonomous.AutonomousTests.test_daily_monthly_atomic_limits_and_zero_disable) ... ok
+test_disabled_or_unconfirmed_free_tier_or_single_owner_source_never_calls_services (test_autonomous.AutonomousTests.test_disabled_or_unconfirmed_free_tier_or_single_owner_source_never_calls_services) ... ok
+test_duplicate_checked_in_persistent_store_before_generation (test_autonomous.AutonomousTests.test_duplicate_checked_in_persistent_store_before_generation) ... ok
+test_failed_group_preview_preserves_complete_private_draft_without_retry (test_autonomous.AutonomousTests.test_failed_group_preview_preserves_complete_private_draft_without_retry) ... ok
+test_full_queue_pauses_without_collecting (test_autonomous.AutonomousTests.test_full_queue_pauses_without_collecting) ... ok
+test_generation_budget_is_reserved_on_every_retry (test_autonomous.AutonomousTests.test_generation_budget_is_reserved_on_every_retry) ... ok
+test_missing_group_stops_before_database_search_or_generation (test_autonomous.AutonomousTests.test_missing_group_stops_before_database_search_or_generation) ... ok
+test_private_pipeline_saves_before_preview_and_never_publishes (test_autonomous.AutonomousTests.test_private_pipeline_saves_before_preview_and_never_publishes) ... ok
+test_retry_two_times_then_failure_no_save (test_autonomous.AutonomousTests.test_retry_two_times_then_failure_no_save) ... ok
+test_rss_rejects_xxe_private_host_stale_and_missing_dates (test_autonomous.AutonomousTests.test_rss_rejects_xxe_private_host_stale_and_missing_dates) ... ok
+test_rss_two_sources_does_not_spend_tavily_credits (test_autonomous.AutonomousTests.test_rss_two_sources_does_not_spend_tavily_credits) ... ok
+test_third_consecutive_failure_sends_one_fixed_alert (test_autonomous.AutonomousTests.test_third_consecutive_failure_sends_one_fixed_alert) ... ok
+test_three_enrichment_failures_trigger_alert_even_if_feeds_work (test_autonomous.AutonomousTests.test_three_enrichment_failures_trigger_alert_even_if_feeds_work) ... ok
+test_weak_source_warns_before_writing_and_never_saves (test_autonomous.AutonomousTests.test_weak_source_warns_before_writing_and_never_saves) ... ok
+test_writer_rejects_short_text_fake_evidence_or_invented_number (test_autonomous.AutonomousTests.test_writer_rejects_short_text_fake_evidence_or_invented_number) ... ok
+test_blocks_incomplete_safety_tool_and_malformed_responses (test_gemini.GeminiTests.test_blocks_incomplete_safety_tool_and_malformed_responses) ... ok
+test_correction_preserves_sources_and_system_instructions (test_gemini.GeminiTests.test_correction_preserves_sources_and_system_instructions) ... ok
+test_editorial_refusal_and_unsubstantiated_numbers_remain_blocked (test_gemini.GeminiTests.test_editorial_refusal_and_unsubstantiated_numbers_remain_blocked) ... ok
+test_invalid_model_cannot_change_destination_or_append_query_parameters (test_gemini.GeminiTests.test_invalid_model_cannot_change_destination_or_append_query_parameters) ... ok
+test_missing_gemini_key_never_falls_back_to_previous_provider (test_gemini.GeminiTests.test_missing_gemini_key_never_falls_back_to_previous_provider) ... ok
+test_only_complete_text_is_accepted_and_thoughts_are_excluded (test_gemini.GeminiTests.test_only_complete_text_is_accepted_and_thoughts_are_excluded) ... ok
+test_preflight_accepts_gemini_without_legacy_key (test_gemini.GeminiTests.test_preflight_accepts_gemini_without_legacy_key) ... ok
+test_uncertain_generation_is_not_retryable_and_does_not_leak_details (test_gemini.GeminiTests.test_uncertain_generation_is_not_retryable_and_does_not_leak_details) ... ok
+test_real_http_signature_challenge_queue_and_private_preview (test_http.HTTPTests.test_real_http_signature_challenge_queue_and_private_preview) ... ok
+test_atomic_dedup_under_concurrency_and_recovery (test_redis.RedisTests.test_atomic_dedup_under_concurrency_and_recovery) ... ok
+test_dedup_ttl_commands_preview_and_delivery_claim (test_redis.RedisTests.test_dedup_ttl_commands_preview_and_delivery_claim) ... ok
+
+----------------------------------------------------------------------
+Ran 50 tests in 3.111s
+
+OK
+
+
+NAVEGADOR — 12 cenários + 3 testes agrupadores
+▶ navegador: leitura privada de rascunhos e demonstração móvel
+  ✔ demonstração mostra fila e texto sem consultar API ou fingir notícia real (428.156663ms)
+  ✔ rascunho legível em 390 e 320 pixels sem rolagem lateral (936.807338ms)
+  ✔ link direto exige login antes de buscar a matéria (156.916016ms)
+  ✔ leitura autenticada escapa HTML e bloqueia link de script (159.427555ms)
+✔ navegador: leitura privada de rascunhos e demonstração móvel (1894.714175ms)
+▶ navegador: prévia, celular, login e bloqueio de sessão
+  ✔ prévia navega por seis módulos sem buscar dados nem publicar (812.52396ms)
+  ✔ prévia offline inclui a tela de login sem transmitir credenciais (291.642553ms)
+  ✔ celular mantém navegação e conteúdo sem rolagem lateral (1055.947032ms)
+  ✔ login real só abre a área depois de validar sessão e rota protegida (572.647761ms)
+✔ navegador: prévia, celular, login e bloqueio de sessão (2916.862423ms)
+▶ navegador: pareamento privado e prévia responsiva
+  ✔ prévia em desktop e celular não envia dados, não oferece QR fictício e não transborda (566.182537ms)
+  ✔ pareamento exige confirmação de chip; QR e código somem depois de conectar (394.300725ms)
+  ✔ grupo só é confirmado pela pessoa e teste envia uma única chamada explícita (194.897205ms)
+  ✔ perda de sessão remove QR e bloqueia controles (165.367639ms)
+✔ navegador: pareamento privado e prévia responsiva (1544.675709ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3347.319806
+
+
+BUILD DO SITE
+{"articles":0,"localities":6,"out":"/workspace/scratch/e70bc0559a4c/tome-nota-supabase-gh/dist-public"}
+
+
+CONFERÊNCIAS
+YAML válido, tmpfs com aspas, worker/Redis sem portas públicas. Docker/nginx não executados.
+Pacote público com admin/drafts.mjs; rascunhos fora do sitemap; AdSense pub-2000164835494228 preservado.
+Nenhuma variável/credencial de servidor em dist-public.
+RSS real: DNS direto indisponível neste ambiente; proxy recusou a consulta. Verificar na VPS.
+HTTP público em 12/10/2026: / = 200; /admin/ = 404; bot /healthz = 502; bot /conectar = 404.
+
+COMANDOS
+TNN_PGLITE_MODULE=<caminho externo do PGlite 0.3.14>/dist/index.js node --test tests/public-site.test.cjs tests/ssg.test.mjs tests/ingest.test.mjs tests/panel-auth.test.mjs tests/whatsapp-bridge.test.mjs tests/whatsapp-panel.test.mjs tests/drafts.test.mjs
+(cd news-agent && python -m unittest discover -s tests -v)
+PANEL_CHROMIUM_PATH=<Chrome Headless Shell> node --test tests/drafts-ui.test.mjs tests/panel-ui.test.mjs tests/whatsapp-ui.test.mjs
+SITE_URL=https://tomezap.com.br node scripts/build-public-site.mjs

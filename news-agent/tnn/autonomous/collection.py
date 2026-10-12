@@ -1,0 +1,164 @@
+"""RSS aprovado pelo dono; nenhum redirecionamento ou acesso à rede privada."""
+from __future__ import annotations
+import hashlib
+import http.client
+import ipaddress
+import re
+import socket
+import ssl
+import time
+import unicodedata
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from defusedxml import ElementTree
+from ..core import AgentError, normalize, required
+from ..providers import Net
+
+class TextOnly(HTMLParser):
+    def __init__(self): super().__init__(); self.skip=0; self.parts=[]
+    def handle_starttag(self,tag,attrs):
+        if tag in ('script','style','nav','footer','header','noscript','svg'): self.skip+=1
+        if not self.skip and tag in ('p','br','div','li','h1','h2'): self.parts.append(' ')
+    def handle_endtag(self,tag):
+        if tag in ('script','style','nav','footer','header','noscript','svg'): self.skip=max(0,self.skip-1)
+        if not self.skip: self.parts.append(' ')
+    def handle_data(self,data):
+        if not self.skip: self.parts.append(data)
+
+def clean(value):
+    p=TextOnly(); p.feed(value or ''); return ' '.join(''.join(p.parts).split())
+
+def canonical(url):
+    p=urlsplit(url)
+    query=urlencode(sorted((k,v) for k,v in parse_qsl(p.query) if not k.lower().startswith('utm_') and k.lower() not in ('fbclid','gclid')))
+    return urlunsplit((p.scheme,p.netloc.lower(),p.path or '/',query,''))
+
+def digest(value): return hashlib.sha256(value.encode()).hexdigest()
+
+def date(value):
+    try:
+        d=datetime.fromisoformat(value.replace('Z','+00:00'))
+    except (ValueError,AttributeError):
+        try: d=parsedate_to_datetime(value)
+        except (ValueError,TypeError,IndexError): return None
+    return d.astimezone(timezone.utc) if d.tzinfo else None
+
+def fresh(value,now,hours=72):
+    d=date(value); return bool(d and -300 <= (now-d.timestamp()) <= hours*3600)
+
+def allowed(url,domains):
+    try:
+        p=urlsplit(url)
+        return p.scheme=='https' and p.hostname in domains and not p.username and not p.password and p.port in (None,443)
+    except (ValueError,TypeError): return False
+
+class PublicFetch:
+    def get(self,url,domains):
+        if not allowed(url,domains): raise AgentError('Fonte fora da lista aprovada.')
+        p=urlsplit(url)
+        try: addresses=socket.getaddrinfo(p.hostname,443,type=socket.SOCK_STREAM)
+        except OSError: raise AgentError('Não foi possível consultar uma fonte.',True) from None
+        if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
+            raise AgentError('Fonte resolveu para endereço não público.')
+        # Conecta ao IP validado, mantendo o hostname original na verificação TLS/SNI.
+        address=addresses[0][4][0]
+        connection=http.client.HTTPSConnection(p.hostname,timeout=10,context=ssl.create_default_context())
+        connection._create_connection=lambda target,timeout,source_address: socket.create_connection((address,443),timeout,source_address)
+        try:
+            connection.request('GET',urlunsplit(('','',p.path or '/',p.query,'')),headers={'User-Agent':'TomeNotaNews/1.0 (editorial RSS)','Accept-Encoding':'identity'})
+            response=connection.getresponse()
+            if response.status != 200: raise AgentError('Fonte indisponível ou redirecionada.',response.status>=500 or response.status==429)
+            content_type=response.getheader('Content-Type','').lower()
+            if not any(t in content_type for t in ('xml','html','text/plain')): raise AgentError('Formato de fonte não aceito.')
+            chunks=[];size=0;deadline=time.monotonic()+10
+            while True:
+                remaining=deadline-time.monotonic()
+                if remaining<=0: raise AgentError('Tempo limite ao ler a fonte.',True)
+                if connection.sock: connection.sock.settimeout(min(10,remaining))
+                chunk=response.read1(min(16384,1000001-size))
+                if not chunk: break
+                chunks.append(chunk);size+=len(chunk)
+                if size>1000000: raise AgentError('Fonte acima do limite de leitura.')
+            return b''.join(chunks)
+        except (OSError,http.client.HTTPException): raise AgentError('Tempo limite ao consultar uma fonte.',True) from None
+        finally: connection.close()
+
+STOP=set('para com uma que dos das pelo pela entre sobre como nesta neste sao goncalo amarante ceara pecem taiba croata paracuru prefeitura governo estado municipio regiao feira hoje ontem'.split())
+def words(value):
+    folded=unicodedata.normalize('NFKD',value).encode('ascii','ignore').decode().lower()
+    return {w for w in re.findall(r'[a-z0-9]+',folded) if len(w)>2 and w not in STOP}
+def similar(a,b,threshold=.65):
+    left,right=words(a),words(b)
+    return bool(left and right and len(left&right)/max(1,min(len(left),len(right)))>=threshold and len(left&right)>=3)
+def local_score(title):
+    t=unicodedata.normalize('NFKD',title).encode('ascii','ignore').decode().lower()
+    local=any(x in t for x in ('sao goncalo do amarante','pecem','taiba','paracuru'))
+    regional='ceara' in t or 'cearense' in t
+    useful=any(x in t for x in ('agua','saude','escola','ponte','chuva','transito','vagas','edital','vacina'))
+    return (10 if local else 3 if regional else 0)+(2 if useful and (local or regional) else 0)
+
+def parse_feed(raw,source,now):
+    try: root=ElementTree.fromstring(raw)
+    except Exception: raise AgentError('RSS inválido; fonte ignorada.') from None
+    rows=[]
+    def tag(node): return node.tag.split('}')[-1].lower()
+    for item in (x for x in root.iter() if tag(x) in ('item','entry')):
+        if len(rows)>=100: break
+        fields={tag(n):n for n in item}
+        def val(*keys):
+            for key in keys:
+                n=fields.get(key)
+                if n is not None and n.text: return n.text.strip()
+            return ''
+        link=val('link')
+        for n in item:
+            if tag(n)=='link' and n.attrib.get('rel','alternate')=='alternate' and n.attrib.get('href'): link=n.attrib['href'];break
+        title=clean(val('title'))[:500]; published=val('pubdate','published','updated','date')
+        if not 3<=len(title)<=500 or not allowed(link,source.domains) or not fresh(published,now): continue
+        content=clean(val('encoded','content','description','summary'))[:12000]
+        rows.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,
+            'title':title,'url':canonical(link),'content':content,'published_date':date(published).isoformat()})
+    return rows
+
+class Collector:
+    def __init__(self,config,quota,public=None,net=None): self.config=config;self.quota=quota;self.public=public or PublicFetch();self.net=net or Net()
+    def feeds(self,now):
+        result=[];errors=0
+        for source in self.config.sources:
+            try: result.extend(parse_feed(self.public.get(source.feed_url,source.domains),source,now))
+            except AgentError: errors+=1
+        if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
+        return sorted(result,key=lambda s:(local_score(s['title']),s['published_date']),reverse=True)
+    def enrich(self,candidate,rows,now):
+        matches=[candidate]+[r for r in rows if r['url']!=candidate['url'] and similar(candidate['title'],r['title'])]
+        sources=self.independent(matches)
+        if len(sources)<2 and self.config.tavily_free and self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):
+            domains=sorted({d for s in self.config.sources for d in s.domains})
+            result=self.net.json('https://api.tavily.com/search',{'query':candidate['title']+' Ceará','topic':'news','search_depth':'basic',
+                'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
+                {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
+            for item in result.get('results',[])[:5]:
+                source=next((s for s in self.config.sources if allowed(item.get('url'),s.domains)),None)
+                if not source or not fresh(item.get('published_date'),now) or not similar(candidate['title'],str(item.get('title',''))): continue
+                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':str(item['title'])[:500],
+                    'url':canonical(item['url']),'content':clean(item.get('raw_content') or item.get('content'))[:12000],
+                    'published_date':date(item['published_date']).isoformat()})
+        # Feed curto ganha o texto da página, dentro dos mesmos domínios aprovados.
+        for row in matches[:10]:
+            if len(row['content'])>=800: continue
+            source=next(s for s in self.config.sources if s.id==row['id'])
+            try: row['content']=clean(self.public.get(row['url'],source.domains).decode('utf-8',errors='replace'))[:12000]
+            except AgentError: pass
+        return self.independent(matches)[:5]
+    @staticmethod
+    def independent(rows):
+        result=[];groups=set()
+        for row in rows:
+            if row['publisher_group'] in groups or len(row['content'])<160: continue
+            # Cópias muito semelhantes não contam como confirmação independente.
+            tokens=words(row['content'])
+            if any(len(tokens&words(s['content']))/max(1,len(tokens|words(s['content'])))>.85 for s in result): continue
+            result.append(row);groups.add(row['publisher_group'])
+        return result
