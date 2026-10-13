@@ -33,6 +33,7 @@ export function loadConfig(env = process.env) {
   if(draftsUrl && draftsUrl!==supabaseUrl+'/functions/v1/tnn-drafts')throw Error('TNN_DRAFTS_URL deve usar o mesmo projeto Supabase do painel.');
   if(draftsToken && !/^[a-f0-9]{64}$/.test(draftsToken))throw Error('TNN_DRAFT_READER_TOKEN inválido.');
   return {production, siteUrl: site.origin, supabaseUrl, publicKey, owner, editors,
+    sessionDir:env.PANEL_SESSION_DIR || '',
     draftsUrl,draftsToken,
     agentUrl,waUrl,waToken,waConfigured:Boolean(waUrl && waToken),
     configured: Boolean(owner && publicKey && supabaseUrl), trustProxy: env.PANEL_TRUST_PROXY === 'true'};

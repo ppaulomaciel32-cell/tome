@@ -30,14 +30,14 @@ test('navegador: pareamento privado e prévia responsiva',async t=>{
     if(!authorized)return route.fulfill({status:401,json:{message:'Sua sessão expirou. Volte ao painel e entre novamente.'}});
     const p=new URL(route.request().url()).pathname;
     if(p.endsWith('/session'))return route.fulfill({json:{user:{role:'owner'},csrf:'fixture-csrf'}});
-    if(p.endsWith('/start')){assert.equal(route.request().headers()['x-csrf-token'],'fixture-csrf');assert.equal(route.request().postDataJSON().confirmDedicated,true);status={...status,state:'awaiting_scan',qr,expiresAt:new Date(Date.now()+55000).toISOString()};}
+    if(p.endsWith('/start')){assert.equal(route.request().headers()['x-csrf-token'],'fixture-csrf');assert.equal(route.request().postDataJSON().confirmRiskAccepted,true);status={...status,state:'awaiting_scan',qr,expiresAt:new Date(Date.now()+55000).toISOString()};}
     if(p.endsWith('/pair-code'))status={...status,qr:null,pairingCode:'ABCD1234',expiresAt:new Date(Date.now()+60000).toISOString()};
     if(p.endsWith('/groups'))return route.fulfill({json:{groups:[{id:'120363123456789000@g.us',name:'Comando Tome Nota',participants:3}]}});
     if(p.endsWith('/group')){assert.equal(route.request().postDataJSON().confirmGroup,true);status={...status,group:{id:'120363123456789000@g.us',name:'Comando Tome Nota'}};}
     if(p.endsWith('/test'))tests++;
     return route.fulfill({json:status});
   });
-  await t.test('pareamento exige confirmação de chip; QR e código somem depois de conectar',async()=>{
+  await t.test('pareamento exige ciência do risco; QR e código somem depois de conectar',async()=>{
     await page.setViewportSize({width:1440,height:1080});await page.goto(base+'/conectar');await page.getByText('Pronto para conectar',{exact:true}).waitFor();assert.equal(await page.locator('#start').isDisabled(),true);
     await page.locator('#dedicated-confirm').check();await page.locator('#start').click();await page.locator('#qr-image').waitFor();assert.match(await page.locator('#qr-image').getAttribute('src'),/^data:image\/png/);
     await page.locator('#phone').click();await page.getByText('ABCD1234',{exact:true}).waitFor();assert.equal(await page.locator('#qr-image').isHidden(),true);

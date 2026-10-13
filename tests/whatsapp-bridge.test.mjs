@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {parseManual} from '../whatsapp-bridge/manual.mjs';
+import {canonicalNumber,identityJid} from '../whatsapp-bridge/identity.mjs';
 import {backupSession} from '../whatsapp-bridge/backup-session.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {openVault} from '../whatsapp-bridge/vault.mjs';
@@ -13,6 +14,16 @@ import {createBridgeServer} from '../whatsapp-bridge/server.mjs';
 import {BufferJSON,initAuthCreds,reviveAppState,qrEncoder} from '../whatsapp-bridge/baileys-adapter.mjs';
 const number='5511999990000',owner='5511999990001',editor='5511999990002',group='120363123456789000@g.us';
 const config=()=>loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner+','+editor,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'});
+test('nono dígito: equivalência restrita a celular brasileiro, sem alterar LIDs e fixos',()=>{
+  assert.equal(canonicalNumber('5585991035373'),'558591035373');
+  assert.equal(identityJid('5585991035373:4@s.whatsapp.net'),'558591035373@s.whatsapp.net');
+  for(const n of ['558533335373','5585933335373','5510991035373','5491191035373','558591035374'])assert.equal(canonicalNumber(n),n);
+  assert.equal(identityJid('5585991035373@lid'),'5585991035373@lid');
+  assert.notEqual(identityJid('558591035373@s.whatsapp.net'),identityJid('558591035373@lid'));
+  const base={WA_DEDICATED_NUMBER:'5585991035373',WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'};
+  assert.throws(()=>loadBridgeConfig({...base,WA_ALLOWED_SENDERS:'558591035373'}));
+  assert.throws(()=>loadBridgeConfig({...base,WA_ALLOWED_SENDERS:'5585987654321,558587654321'}));
+});
 const draftPreview=()=>({id:crypto.randomUUID(),revision:1,titulo:'Simulação de prévia privada',resumo:'Este conteúdo sintético não representa uma notícia real.',localidade:'regiao',sources:[{name:'Fonte A',url:'https://a.example/test'},{name:'Fonte B',url:'https://b.example/test'}]});
 async function vaultFixture(t){const directory=await mkdtemp(join(tmpdir(),'tnn-wa-'));const key=randomBytes(32).toString('hex');let vault=openVault({directory,key,codec:BufferJSON});t.after(async()=>{try{vault.close();}catch{}await rm(directory,{recursive:true,force:true});});return {directory,key,vault,reopen(){vault.close();vault=openVault({directory,key,codec:BufferJSON});return vault;}};}
 async function fixture(t,{cfg=config(),wrongNumber=false}={}){
@@ -28,6 +39,27 @@ async function fixture(t,{cfg=config(),wrongNumber=false}={}){
   const message=async({sender='100001@lid',id=randomBytes(5).toString('hex'),remote=group,text='STATUS',type='notify',timestamp=time/1000,alt,fromMe=false,requestId}={})=>{callbacks.onMessages({type,requestId,messages:[{key:{remoteJid:remote,participant:sender,participantAlt:alt,id,fromMe},messageTimestamp:timestamp,message:{conversation:text}}]});await c.idle();};
   return {c,...v,auth,connect,bind,update,message,sends,timers,socket,get callbacks(){return callbacks;},get connections(){return connections;},advance:ms=>{time+=ms;},setMeta:fn=>{meta=fn(meta);callbacks?.onGroupsChanged();}};
 }
+test('Brasil: pareia e recebe dono/editor com e sem nono dígito sem liberar intruso',async t=>{
+  for(const reversed of [false,true]) {
+    const full='5585991035373',short='558591035373',editorFull='5585987654321',editorShort='558587654321';
+    const f=await fixture(t,{cfg:{...config(),number:reversed?short:full,allowedNumbers:[reversed?editorShort:editorFull],acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64)}});
+    f.socket.user.id=(reversed?full:short)+':2@s.whatsapp.net';
+    f.socket.resolveLid=async()=>undefined;
+    f.setMeta(m=>({...m,participants:[{id:(reversed?full:short)+'@s.whatsapp.net'},{id:'500001@lid',phoneNumber:(reversed?editorFull:editorShort)+'@s.whatsapp.net'}]}));
+    await f.c.start({confirmRiskAccepted:true});await f.update({connection:'open'});
+    assert.equal(f.c.status().connected,true);await f.bind();
+    await f.message({fromMe:true,text:'PAUTA: obras na entrada do Pecém nesta semana'});
+    await f.message({sender:editorFull+'@s.whatsapp.net',id:'editor-repeat',text:'PAUTA: transporte público para trabalhadores do Pecém'});
+    await f.message({sender:editorShort+'@s.whatsapp.net',id:'editor-repeat',text:'PAUTA: transporte público para trabalhadores do Pecém'});
+    await f.message({sender:'500001@lid',text:'PAUTA: atendimento da unidade de saúde no Pecém'});
+    assert.equal(f.c.status().manual.queued,3);
+    await f.message({sender:'558587654320@s.whatsapp.net',text:'PAUTA: mensagem de pessoa sem autorização no grupo'});
+    await f.message({sender:editorFull+'@lid',text:'PAUTA: telefone como LID não pode ganhar autorização'});
+    assert.equal(f.c.status().manual.queued,3);
+    f.setMeta(m=>({...m,participants:[...m.participants,{id:'558587654320@s.whatsapp.net'}]}));
+    await assert.rejects(f.c.test(),e=>e.code==='unexpected_members');
+  }
+});
 test('telemetria: aceita somente etapas/códigos fixos, sem texto privado',async t=>{
   const f=await fixture(t,{cfg:{...config(),pipelineToken:'f'.repeat(64)}});
   const body={cycleId:crypto.randomUUID(),state:'running',stage:'redacao',pending:0};

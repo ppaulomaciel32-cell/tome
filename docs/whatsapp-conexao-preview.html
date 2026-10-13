@@ -18,10 +18,10 @@
 <div class="notice"><span class="notice-icon" aria-hidden="true">!</span><div><strong>Use um chip exclusivo para o robô.</strong><p>Esta conexão por QR Code não é oficial do WhatsApp e pode causar bloqueio do número. Use um chip dedicado e poucos envios. Isso reduz a exposição do seu número pessoal, mas não garante que o robô não seja bloqueado.</p></div></div>
 <div class="connection-layout">
 <section class="card pairing-card" aria-labelledby="pair-title"><div class="card-heading"><span class="step">01</span><div><p class="eyebrow">CONECTAR O CHIP</p><h2 id="pair-title">Um celular. Um QR Code.</h2></div></div>
-<p>Abra o WhatsApp do <strong>chip dedicado</strong>. Toque em <strong>Aparelhos conectados → Conectar aparelho</strong>.</p>
-<div class="qr-area" id="qr-area"><div class="qr-placeholder" id="qr-placeholder"><span class="scan-symbol" aria-hidden="true">▧</span><strong>Seu QR aparecerá aqui</strong><p>Inicie a conexão para gerar um código<br>que só você pode ver.</p></div><img id="qr-image" width="320" height="320" alt="QR Code privado para conectar o chip do robô" hidden><div id="pair-code" hidden><small>CÓDIGO DE PAREAMENTO</small><strong id="code-value"></strong><p>Digite no WhatsApp do chip dedicado.</p></div></div>
+<p>Abra o WhatsApp do <strong>número configurado</strong>. Toque em <strong>Aparelhos conectados → Conectar aparelho</strong>.</p>
+<div class="qr-area" id="qr-area"><div class="qr-placeholder" id="qr-placeholder"><span class="scan-symbol" aria-hidden="true">▧</span><strong>Seu QR aparecerá aqui</strong><p>Inicie a conexão para gerar um código<br>que só você pode ver.</p></div><img id="qr-image" width="320" height="320" alt="QR Code privado para conectar o chip do robô" hidden><div id="pair-code" hidden><small>CÓDIGO DE PAREAMENTO</small><strong id="code-value"></strong><p>Digite no WhatsApp do número configurado.</p></div></div>
 <p id="pair-expiry" class="muted centered">Nenhum QR Code foi gerado.</p>
-<label class="check"><input type="checkbox" id="dedicated-confirm"><span>Estou usando um chip exclusivo para o robô.</span></label>
+<label class="check"><input type="checkbox" id="dedicated-confirm"><span>Autorizo conectar o número configurado e entendo que a conexão não oficial pode bloquear esse número, inclusive se for meu número pessoal.</span></label>
 <div class="actions"><button id="start" class="button primary" disabled>Gerar QR Code <span aria-hidden="true">↗</span></button><button id="phone" class="button secondary" disabled>Usar código no celular</button></div>
 <p class="muted">Número configurado: <strong id="dedicated-number">aguardando configuração</strong>. A sessão ficará salva no servidor.</p>
 </section>
@@ -42,7 +42,7 @@
 </main>
 <script type="module">const preview = document.documentElement.dataset.preview === 'true';
 const $ = id=>document.getElementById(id);
-const labels={idle:'Pronto para conectar',awaiting_configuration:'Aguardando configuração',connecting:'Conectando…',awaiting_scan:'Escaneie com o chip dedicado',connected:'WhatsApp conectado',reconnecting:'Reconectando…',needs_attention:'Conexão precisa de atenção',wrong_number:'Chip diferente do configurado',error:'Conexão indisponível'};
+const labels={idle:'Pronto para conectar',awaiting_configuration:'Aguardando configuração',connecting:'Conectando…',awaiting_scan:'Escaneie com o número configurado',connected:'WhatsApp conectado',reconnecting:'Reconectando…',needs_attention:'Conexão precisa de atenção',wrong_number:'Chip diferente do configurado',error:'Conexão indisponível'};
 let csrf='', busy=false, last=null, expiry=0, stopped=false;
 function clearPairing(){ $('qr-image').hidden=true;$('qr-image').removeAttribute('src');$('pair-code').hidden=true;$('code-value').textContent='';$('qr-placeholder').hidden=false;expiry=0; }
 function draw(data){
@@ -74,7 +74,7 @@ async function request(path,body){
 async function refresh(){if(preview||busy||document.hidden||stopped)return;try{draw(await request('/whatsapp/pairing'));}catch(e){clearPairing();$('state-label').textContent='Conexão não confirmada';$('message').textContent=e.message;}}
 async function action(fn){if(busy||stopped||preview)return;busy=true;$('message').textContent='';document.querySelectorAll('button').forEach(x=>x.disabled=true);try{await fn();}catch(e){$('message').textContent=e.message;}finally{busy=false;await refresh();}}
 $('dedicated-confirm').addEventListener('change',()=>{if(last)draw(last);});
-$('start').addEventListener('click',()=>action(async()=>{await request('/whatsapp/start',{confirmDedicated:$('dedicated-confirm').checked});}));
+$('start').addEventListener('click',()=>action(async()=>{await request('/whatsapp/start',{confirmRiskAccepted:$('dedicated-confirm').checked});}));
 $('phone').addEventListener('click',()=>action(async()=>{await request('/whatsapp/pair-code',{});}));
 $('load-groups').addEventListener('click',()=>action(async()=>{
   const data=await request('/whatsapp/groups');$('group-select').replaceChildren();$('group-confirm').checked=false;

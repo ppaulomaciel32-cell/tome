@@ -4,6 +4,9 @@ services:
   painel-api:
     build: .
     env_file: .env
+    environment:
+      PANEL_SESSION_DIR: /data/panel-sessions
+    volumes: [painel_sessoes:/data/panel-sessions]
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
@@ -18,3 +21,5 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+volumes:
+  painel_sessoes:

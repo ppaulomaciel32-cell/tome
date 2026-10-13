@@ -1,5 +1,9 @@
 # Correção de mensagens do dono e produção manual
 
+> Infraestrutura migrada para Hostinger. Antes de aplicar este roteiro, leia
+> [o estado atual e as correções](INFRA_HOSTINGER_2026-10-13.md).
+> Contabo não deve ser acessada; Render já publica esta branch por deploy manual.
+
 Atualização: 13/10/2026. Branch: `feat/tomezap-robo-whatsapp`.
 
 **Código implementado; ativação na VPS e teste real ainda pendentes.**

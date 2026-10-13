@@ -1,17 +1,19 @@
 import {createHash,createHmac} from 'node:crypto';
 import {manualQueue,parseManual,messageDigest,commandUUID} from './manual.mjs';
+import {normalizeJid,identityJid,canonicalNumber,numberVariants} from './identity.mjs';
+export {normalizeJid} from './identity.mjs';
 
 export class BridgeError extends Error {
   constructor(status, code, message) {super(message); Object.assign(this,{status,code});}
 }
 const fail = (status,code,message)=>{throw new BridgeError(status,code,message);};
 const groupPattern = /^[0-9]{5,25}(?:-[0-9]{5,25})?@g\.us$/;
-export const normalizeJid = jid => typeof jid === 'string' ? jid.replace(/:\d+(?=@)/,'') : '';
 export function loadBridgeConfig(env = process.env) {
   const number = env.WA_DEDICATED_NUMBER || '';
   const allowedNumbers = [...new Set((env.WA_ALLOWED_SENDERS || '').split(',').map(x=>x.trim()).filter(Boolean))];
   if ((number && !/^[1-9]\d{9,14}$/.test(number)) || allowedNumbers.some(n=>!/^[1-9]\d{9,14}$/.test(n))) throw Error('Use DDI + DDD + número, somente dígitos.');
-  if (allowedNumbers.length > 2 || allowedNumbers.includes(number)) throw Error('Autorize até dois editores, diferentes do chip dedicado.');
+  const identities=allowedNumbers.map(canonicalNumber);
+  if (allowedNumbers.length > 2 || new Set(identities).size!==identities.length || identities.includes(canonicalNumber(number))) throw Error('Autorize até dois editores distintos, diferentes do número conectado.');
   const enabled = env.WA_ENABLED === 'true';
   if (env.AGENTE_REQUER_APROVACAO !== 'true') throw Error('Este robô exige AGENTE_REQUER_APROVACAO=true.');
   if (!/^[a-f0-9]{64}$/i.test(env.WA_BRIDGE_TOKEN || '')) throw Error('Configure um WA_BRIDGE_TOKEN aleatório de 64 caracteres hexadecimais.');
@@ -51,13 +53,17 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   }
   async function members(meta) {
     if (!meta || !groupPattern.test(meta.id) || meta.subject!==config.groupName || !Array.isArray(meta.participants)) fail(409,'wrong_group','Escolha o grupo Comando Tome Nota.');
-    const participants = meta.participants.map(p=>({id:normalizeJid(p.id), pn:normalizeJid(p.phoneNumber), lid:normalizeJid(p.lid)}));
-    const ownIds = [normalizeJid(socket.user?.id),normalizeJid(socket.user?.lid)].filter(Boolean);
+    const participants = meta.participants.map(p=>({id:identityJid(p.id), pn:identityJid(p.phoneNumber), lid:identityJid(p.lid)}));
+    const ownIds = [identityJid(socket.user?.id),identityJid(socket.user?.lid)].filter(Boolean);
     if (!participants.some(p=>[p.id,p.pn,p.lid].some(id=>id && ownIds.includes(id)))) fail(409,'bot_not_member','Adicione o chip do robô ao grupo pelo seu celular.');
     const allowed = new Set();
     for (const number of config.allowedNumbers) {
-      const pn = number+'@s.whatsapp.net';
-      const lid = normalizeJid(await socket.resolveLid?.(pn));
+      const pn = identityJid(number+'@s.whatsapp.net');
+      let lid='';
+      for(const candidate of numberVariants(number)) {
+        lid=normalizeJid(await socket.resolveLid?.(candidate+'@s.whatsapp.net'));
+        if(lid)break;
+      }
       const p = participants.find(p=>p.id===pn || p.pn===pn || (lid && (p.id===lid || p.lid===lid)));
       if (!p) fail(409,'editor_not_member','Um editor autorizado não foi identificado no grupo. Confira os números configurados.');
       // Identidades vêm dos metadados/resolução autenticada, nunca do texto ou participantAlt da mensagem.
@@ -87,14 +93,14 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const key=message.key || {}, timestamp=Number(message.messageTimestamp)*1000;
       if(key.remoteJid!==group.id || !key.id || message.requestId || !Number.isFinite(timestamp) || Math.abs(now()-timestamp)>120000) continue;
       if(key.fromMe && !config.acceptOwnCommands)continue;
-      const sender=normalizeJid(key.participant);
+      const sender=identityJid(key.participant);
       const allowed=await members(await metadata(group.id));
       if(!key.fromMe && !allowed.has(sender)) continue;
       const text=message.message?.conversation ?? message.message?.extendedTextMessage?.text ?? message.message?.imageMessage?.caption;
       if(typeof text!=='string' || text.length>4000) continue;
       if(key.fromMe && (vault.get('outbound',[]).some(x=>x.id===key.id) || vault.get('outboundHashes',[]).some(x=>x.hash===messageDigest(text) && x.at>now()-72*3600000)))continue;
       const command=text.trim().toUpperCase();
-      const identity=key.fromMe?config.number+'@s.whatsapp.net':sender;
+      const identity=key.fromMe?identityJid(config.number+'@s.whatsapp.net'):sender;
       const receipt=createHash('sha256').update(group.id+'|'+identity+'|'+key.id).digest('hex');
       const parsed=parseManual(text);
       if(config.manualEnabled && parsed){
@@ -137,8 +143,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         if(update.connection==='connecting' || update.qr)connectingReady=true;
         if(update.qr && !auth.state.creds.registered && !(pairingCode && pairingExpires>now())) {pairingCode=null;qr=await qrEncoder(update.qr);pairingExpires=now()+55000;state='awaiting_scan';}
         if(update.connection==='open') {
-          const own=normalizeJid(socket.user?.id);
-          if(own!==config.number+'@s.whatsapp.net') {state='wrong_number';vault.put('blocked','wrong_number');closeSocket();record('wrong_number');return;}
+          const own=identityJid(socket.user?.id);
+          if(own!==identityJid(config.number+'@s.whatsapp.net')) {state='wrong_number';vault.put('blocked','wrong_number');closeSocket();record('wrong_number');return;}
           state='connected';clearPairing();attempt=0;connectedAt=new Date(now()).toISOString();lastError=null;record('connected');lastError=null;
         }
         if(update.connection==='close') {
@@ -224,7 +230,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     pairing:()=>({...status(),qr:pairingExpires>now()?qr:null,pairingCode:pairingExpires>now()?pairingCode:null,expiresAt:pairingExpires>now()?new Date(pairingExpires).toISOString():null}),
     start:body=>run(async()=>{
       if(!config.configured)fail(503,'awaiting_configuration','Configure o chip dedicado, os editores e o cofre na VPS.');
-      if(body?.confirmDedicated!==true)fail(400,'confirmation_required','Confirme que está usando um chip exclusivo para o robô.');
+      // confirmDedicated mantém compatibilidade com a tela antiga durante deploy.
+      if(body?.confirmRiskAccepted!==true && body?.confirmDedicated!==true)fail(400,'confirmation_required','Confirme que autoriza conectar este número e compreende o risco de bloqueio.');
       if(['needs_attention','wrong_number'].includes(state))fail(409,'manual_attention','A sessão requer conferência no servidor. Não apague o volume.');
       if(!socket && !retryTimer)await open();return status();
     }),

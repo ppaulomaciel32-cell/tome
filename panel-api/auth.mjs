@@ -1,5 +1,6 @@
-// A senha vai ao Supabase. Tokens permanecem somente na memória do servidor.
+// A senha vai ao Supabase. Tokens ficam no servidor e no cofre criptografado.
 import {randomBytes, createHash} from 'node:crypto';
+import {openSessionStore} from './session-store.mjs';
 
 export class PanelError extends Error {
   constructor(status, code, message) { super(message); Object.assign(this, {status, code}); }
@@ -17,7 +18,7 @@ export function roleFor(user, config) {
 }
 
 export function createAuth(config, {fetchImpl = fetch, now = Date.now} = {}) {
-  const sessions = new Map();
+  const store = openSessionStore(config.sessionDir), sessions = store.sessions;
   const hash = value => createHash('sha256').update(value).digest('hex');
   const cookieName = config.production ? '__Host-tnn_panel' : 'tnn_panel_dev';
   const lifetime = 8 * 60 * 60 * 1000;
@@ -30,7 +31,10 @@ export function createAuth(config, {fetchImpl = fetch, now = Date.now} = {}) {
     return value && /^[a-zA-Z0-9_-]{43}$/.test(value) ? hash(value) : null;
   }
   function prune() {
-    for (const [key, s] of sessions) if (s.deadline <= now() || s.lastSeen + idle <= now()) sessions.delete(key);
+    store.assertReady?.();
+    let changed=false;
+    for (const [key, s] of sessions) if (s.deadline <= now() || s.lastSeen + idle <= now()) {sessions.delete(key);changed=true;}
+    if(changed)store.save();
   }
   async function request(route, {method = 'GET', body, token} = {}) {
     let response;
@@ -80,6 +84,7 @@ export function createAuth(config, {fetchImpl = fetch, now = Date.now} = {}) {
       const raw = randomBytes(32).toString('base64url');
       const csrf = randomBytes(32).toString('base64url');
       sessions.set(hash(raw), {...tokens, user, csrf, lastSeen: now(), deadline: now() + lifetime, refreshing: null});
+      store.save();
       return {user, csrf, cookie: cookie(raw)};
     },
     async session(cookieHeader) {
@@ -90,22 +95,25 @@ export function createAuth(config, {fetchImpl = fetch, now = Date.now} = {}) {
         if (s.expires <= now() + 60000) {
           // Uma única renovação por sessão, mesmo com abas abertas ao mesmo tempo.
           s.refreshing ||= request('/token?grant_type=refresh_token', {method: 'POST', body: {refresh_token: s.refresh}})
-            .then(data => Object.assign(s, tokenSet(data))).finally(() => {s.refreshing = null;});
+            .then(data => {Object.assign(s, tokenSet(data));store.save();}).finally(() => {s.refreshing = null;});
           await s.refreshing;
         }
         const user = verified(await request('/user', {token: s.access}));
         if (user.id !== s.user.id || user.email !== s.user.email) throw invalid();
         if (!sessions.has(id)) throw invalid();
         s.user = user; s.lastSeen = now();
+        store.save();
         return {id, user, csrf: s.csrf};
       } catch (error) {
-        if (error.status === 401 || error.status === 403) sessions.delete(id);
+        if (error.status === 401 || error.status === 403) {sessions.delete(id);store.save();}
         throw error;
       }
     },
     async logout(session) {
+      store.assertReady?.();
       const s = sessions.get(session.id);
       sessions.delete(session.id);
+      store.save();
       // Scope local não encerra sessões do usuário em outros sistemas.
       if (s) await request('/logout?scope=local', {method: 'POST', token: s.access}).catch(() => {});
       return cookie('', true);

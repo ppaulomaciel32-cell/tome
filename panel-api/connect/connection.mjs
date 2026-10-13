@@ -1,6 +1,6 @@
 const preview = document.documentElement.dataset.preview === 'true';
 const $ = id=>document.getElementById(id);
-const labels={idle:'Pronto para conectar',awaiting_configuration:'Aguardando configuração',connecting:'Conectando…',awaiting_scan:'Escaneie com o chip dedicado',connected:'WhatsApp conectado',reconnecting:'Reconectando…',needs_attention:'Conexão precisa de atenção',wrong_number:'Chip diferente do configurado',error:'Conexão indisponível'};
+const labels={idle:'Pronto para conectar',awaiting_configuration:'Aguardando configuração',connecting:'Conectando…',awaiting_scan:'Escaneie com o número configurado',connected:'WhatsApp conectado',reconnecting:'Reconectando…',needs_attention:'Conexão precisa de atenção',wrong_number:'Chip diferente do configurado',error:'Conexão indisponível'};
 let csrf='', busy=false, last=null, expiry=0, stopped=false;
 function clearPairing(){ $('qr-image').hidden=true;$('qr-image').removeAttribute('src');$('pair-code').hidden=true;$('code-value').textContent='';$('qr-placeholder').hidden=false;expiry=0; }
 function draw(data){
@@ -32,7 +32,7 @@ async function request(path,body){
 async function refresh(){if(preview||busy||document.hidden||stopped)return;try{draw(await request('/whatsapp/pairing'));}catch(e){clearPairing();$('state-label').textContent='Conexão não confirmada';$('message').textContent=e.message;}}
 async function action(fn){if(busy||stopped||preview)return;busy=true;$('message').textContent='';document.querySelectorAll('button').forEach(x=>x.disabled=true);try{await fn();}catch(e){$('message').textContent=e.message;}finally{busy=false;await refresh();}}
 $('dedicated-confirm').addEventListener('change',()=>{if(last)draw(last);});
-$('start').addEventListener('click',()=>action(async()=>{await request('/whatsapp/start',{confirmDedicated:$('dedicated-confirm').checked});}));
+$('start').addEventListener('click',()=>action(async()=>{await request('/whatsapp/start',{confirmRiskAccepted:$('dedicated-confirm').checked});}));
 $('phone').addEventListener('click',()=>action(async()=>{await request('/whatsapp/pair-code',{});}));
 $('load-groups').addEventListener('click',()=>action(async()=>{
   const data=await request('/whatsapp/groups');$('group-select').replaceChildren();$('group-confirm').checked=false;
