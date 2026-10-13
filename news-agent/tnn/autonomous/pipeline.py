@@ -15,6 +15,10 @@ class Pipeline:
             except AgentError as error:
                 if not error.retryable or attempt==2: raise
                 self.sleep(2**attempt)
+    def report_stage(self,cycle,stage,pending):
+        # Telemetria opcional: sua falha não gera nem publica uma matéria.
+        try: self.bridge.call('/cycle-status',{'state':'running','cycleId':cycle,'stage':stage,'pending':min(10,pending)})
+        except Exception: pass
     def once(self):
         c=self.config
         if not c.enabled or not c.gemini_free or len({s.publisher_group for s in c.sources})<2:
@@ -32,7 +36,7 @@ class Pipeline:
                 if start.get('reason')=='queue_full': self.bridge.call('/cycle-status',{'state':'queue_full','cycleId':cycle,'pending':len(context['drafts'])})
                 return {'status':start.get('reason','cycle_exists')}
             begun=True
-            self.bridge.call('/cycle-status',{'state':'running','cycleId':cycle,'pending':len(context['drafts'])})
+            self.bridge.call('/cycle-status',{'state':'running','stage':'coleta','cycleId':cycle,'pending':len(context['drafts'])})
             rows=self.retry(lambda:self.collector.feeds(self.now()))
             known=context.get('seen',[])
             candidate=next((r for r in rows if local_score(r['title'])>0 and not any(
@@ -49,14 +53,17 @@ class Pipeline:
                 self.state.reset('coleta')
                 status='skipped';code='already_seen';return {'status':code}
             self.state.reset('coleta');stage='redacao'
+            self.report_stage(cycle,stage,len(context['drafts']))
             def write():
                 if not self.state.reserve('gemini',c.gemini_daily): raise QuotaLimit('Cota local de redação atingida.')
                 return self.writer.write(candidate['title'],sources)
             draft=self.retry(write);draft['id']=str(uuid.uuid4());self.state.reset('redacao');stage='rascunho'
+            self.report_stage(cycle,stage,len(context['drafts']))
             if not lock.owned() or self.now()-started>660: raise AgentError('Ciclo excedeu o tempo disponível.')
             result=self.retry(lambda:self.drafts.call({'action':'save','cycle_id':cycle,'draft':draft,'seen':seen,'max_pending':c.max_pending}))
             if not result.get('saved'): status='skipped';code=result.get('reason','already_seen');return {'status':code}
             draft_id=result['id'];self.state.reset('rascunho');stage='previa'
+            self.report_stage(cycle,stage,len(context['drafts'])+1)
             self.bridge.call('/preview',{'id':draft_id,'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],
                 'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources]})
             self.state.reset('previa');return {'status':'draft_created','id':draft_id}
@@ -75,7 +82,7 @@ class Pipeline:
                 duration=min(900000,max(0,int((self.now()-started)*1000)))
                 try: self.retry(lambda:self.drafts.call({'action':'finish','id':cycle,'status':status,'stage':stage,'code':code,'duration_ms':duration}),allow_expired=True)
                 except Exception: status='failed';code='store_failed'
-                try: self.bridge.call('/cycle-status',{'state':status,'cycleId':cycle,'pending':min(10,len(context['drafts'])+int(bool(draft_id))),'code':code})
+                try: self.bridge.call('/cycle-status',{'state':status,'stage':stage,'cycleId':cycle,'pending':min(10,len(context['drafts'])+int(bool(draft_id))),'code':code})
                 except Exception: pass
             try:
                 if lock.owned(): lock.release()

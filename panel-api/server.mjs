@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {createAuth, PanelError, normalizeEmail} from './auth.mjs';
 import {createWhatsAppClient} from './whatsapp.mjs';
 import {createDraftReader} from './drafts.mjs';
+import {createWorkflowReader} from './workflow.mjs';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function loadConfig(env = process.env) {
@@ -59,10 +60,11 @@ const sameSecret = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader} = {}) {
+export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader,workflowReader} = {}) {
   const auth = createAuth(config, {fetchImpl, now}), limit = limiter(now);
   const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
   const drafts=draftReader || createDraftReader(config,{fetchImpl});
+  const workflow=workflowReader || createWorkflowReader(config,{whatsapp:wa,drafts,fetchImpl,now});
   const connectAssets=new Map([
     ['/conectar',['text/html; charset=utf-8','index.html']],
     ['/conectar/',['text/html; charset=utf-8','index.html']],
@@ -121,8 +123,13 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const waPaths=new Map([['status','GET'],['pairing','GET'],['groups','GET'],['start','POST'],['pair-code','POST'],['group','POST'],['test','POST']].map(([p,m])=>['/painel-api/whatsapp/'+p,{p,m}]));
       const waRoute=waPaths.get(path);
       const draftRoute=path.match(/^\/painel-api\/drafts(?:\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}))?$/);
-      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap'].includes(path) && !waRoute && !draftRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap','/painel-api/workflow'].includes(path) && !waRoute && !draftRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       const session = await auth.session(req.headers.cookie);
+      if(path==='/painel-api/workflow'){
+        if(req.method!=='GET')throw new PanelError(405,'read_only','Esta sala só acompanha o trabalho. Nenhuma publicação ou comando é executado aqui.');
+        limit('workflow:'+session.user.id,10,60000);
+        return send(200,await workflow());
+      }
       if(draftRoute){
         if(req.method!=='GET')throw new PanelError(405,'read_only','Nesta etapa, o painel só permite conferir os rascunhos.');
         limit('draft-read:'+session.user.id,30,60000);

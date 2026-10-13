@@ -126,7 +126,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   function status() {
     const group=selection();return {state,connected:state==='connected',configured:config.configured,group:group?{id:group.id,name:config.groupName}:null,
       dedicatedNumber:config.number ? '••••'+config.number.slice(-4):null,authorizedEditors:config.allowedNumbers.length,
-      connectedAt,lastError,publicationEnabled:false,requiresApproval:true,cycle:cycleState(),events:vault.get('events',[]).slice(-5)};
+      connectedAt,lastError,publicationEnabled:false,requiresApproval:true,cycle:cycleState(),cycleEvents:vault.get('cycleEvents',[]).slice(-12),events:vault.get('events',[]).slice(-5)};
   }
   return {
     status,
@@ -135,7 +135,13 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     cycleStatus:body=>run(()=>{
       if(!/^[a-f0-9-]{36}$/.test(body?.cycleId || '') || !['running','completed','skipped','failed','queue_full','awaiting_configuration'].includes(body.state)
         || !Number.isInteger(body.pending) || body.pending<0 || body.pending>10)fail(400,'invalid_cycle','Estado do ciclo inválido.');
-      vault.put('cycle',{state:body.state,pending:body.pending,at:now()});return {ok:true};
+      const stage=body.stage ?? null,code=body.code ?? null;
+      if(stage!==null && !['coleta','redacao','rascunho','previa','fim'].includes(stage))fail(400,'invalid_cycle','Etapa do ciclo inválida.');
+      if(code!==null && !['ok','no_candidates','weak_sources','already_seen','queue_full','quota_limit','collect_failed','write_failed','store_failed','preview_failed','internal_error'].includes(code))fail(400,'invalid_cycle','Código do ciclo inválido.');
+      const event={state:body.state,stage,code,at:now()};
+      vault.put('cycle',{...event,pending:body.pending});
+      // Histórico curto de códigos fixos; sem mensagens, telefones ou payloads.
+      vault.put('cycleEvents',[...vault.get('cycleEvents',[]),event].slice(-20));return {ok:true};
     }),
     preview:body=>run(async()=>{
       const validId=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;

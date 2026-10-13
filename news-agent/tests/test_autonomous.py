@@ -57,6 +57,19 @@ class AutonomousTests(unittest.TestCase):
         self.assertEqual(preview['id'],self.actions[2]['draft']['id'])
         self.assertEqual(preview['revision'],1)
         self.assertFalse(any('publish' in p['action'] for p in self.actions))
+    def test_stage_observations_follow_the_real_pipeline_without_publication(self):
+        self.assertEqual(self.pipeline.once()['status'],'draft_created')
+        updates=[c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/cycle-status']
+        self.assertEqual([p['stage'] for p in updates],['coleta','redacao','rascunho','previa','previa'])
+        self.assertEqual(updates[-1]['state'],'completed')
+        self.assertFalse(any(p.get('action')=='publish' for p in self.actions))
+    def test_optional_stage_observation_failure_does_not_discard_complete_draft(self):
+        def bridge(path,p=None):
+            if path=='/cycle-status' and p.get('stage')=='redacao':raise AgentError('telemetry fixture')
+            return {'connected':True,'groupConfigured':True}
+        self.bridge.call.side_effect=bridge
+        self.assertEqual(self.pipeline.once()['status'],'draft_created')
+        self.assertTrue(any(p['action']=='save' for p in self.actions))
     def test_disabled_or_unconfirmed_free_tier_or_single_owner_source_never_calls_services(self):
         for cfg in (dataclasses.replace(self.config,enabled=False),dataclasses.replace(self.config,gemini_free=False),dataclasses.replace(self.config,sources=(SOURCE,))):
             self.pipeline.config=cfg;self.assertEqual(self.pipeline.once()['status'],'awaiting_configuration')

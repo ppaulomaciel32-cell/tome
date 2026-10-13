@@ -27,6 +27,14 @@ async function fixture(t,{cfg=config(),wrongNumber=false}={}){
   const message=async({sender='100001@lid',id=randomBytes(5).toString('hex'),remote=group,text='STATUS',type='notify',timestamp=time/1000,alt,fromMe=false,requestId}={})=>{callbacks.onMessages({type,requestId,messages:[{key:{remoteJid:remote,participant:sender,participantAlt:alt,id,fromMe},messageTimestamp:timestamp,message:{conversation:text}}]});await c.idle();};
   return {c,...v,auth,connect,bind,update,message,sends,timers,socket,get callbacks(){return callbacks;},get connections(){return connections;},advance:ms=>{time+=ms;},setMeta:fn=>{meta=fn(meta);callbacks?.onGroupsChanged();}};
 }
+test('telemetria: aceita somente etapas/códigos fixos, sem texto privado',async t=>{
+  const f=await fixture(t,{cfg:{...config(),pipelineToken:'f'.repeat(64)}});
+  const body={cycleId:crypto.randomUUID(),state:'running',stage:'redacao',pending:0};
+  await f.c.cycleStatus(body);assert.equal(f.c.status().cycle.stage,'redacao');
+  await assert.rejects(f.c.cycleStatus({...body,stage:'PRIVATE_TOKEN'}),e=>e.code==='invalid_cycle');
+  await assert.rejects(f.c.cycleStatus({...body,code:'PRIVATE_PROVIDER_DETAIL'}),e=>e.code==='invalid_cycle');
+  assert.doesNotMatch(JSON.stringify(f.c.status()),/PRIVATE_TOKEN|PRIVATE_PROVIDER/);
+});
 test('configuração exige aprovação humana e separa chip dos editores',()=>{
   const base={WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'};
   assert.throws(()=>loadBridgeConfig({...base,AGENTE_REQUER_APROVACAO:'false'}));

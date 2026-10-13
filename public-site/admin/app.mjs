@@ -24,7 +24,7 @@ async function enter(session) {
   csrf = session.csrf;
   await request('/bootstrap');
   unmount();
-  const cleanup = mountShell({root, user:session.user, whatsappRequest:request, onLogout:async () => {
+  const cleanup = mountShell({root, user:session.user, whatsappRequest:request,onAuthError:error=>login(error.message), onLogout:async () => {
     try {await request('/logout',{}); login('Você saiu do painel.');}
     catch {login('Não foi possível confirmar o encerramento no servidor. Feche esta janela; a sessão expira por inatividade.');}
   }});

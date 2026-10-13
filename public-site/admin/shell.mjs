@@ -1,5 +1,6 @@
 import {icon} from './icons.mjs';
 import {draftList,draftDetail} from './drafts.mjs';
+import {mountOperations} from './operations.mjs';
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export const modules = [
   {id:'biblioteca', label:'Biblioteca', icon:'folder', eyebrow:'DA PAUTA À MATÉRIA', description:'Fotos, vídeos, textos e releases. O ponto de partida da sua redação.', action:'Explorar biblioteca', title:'Uma boa matéria começa aqui.', detail:'Organize os materiais por localidade e envie as pautas ao robô quando a biblioteca estiver conectada.'},
@@ -35,23 +36,34 @@ function whatsappPage(preview, user) {
 function helpPage() {
   return `<div class="page-heading"><div><p class="eyebrow">SIMPLES, DO COMEÇO AO FIM</p><h1>Seu jeito de produzir notícia.</h1><p>O painel está sendo construído para acompanhar este fluxo.</p></div></div><div class="flow-grid">${[['01','Reúna a pauta','Envie a foto, o texto ou o release e escolha a localidade.','folder'],['02','Produza a matéria','O robô busca fontes e prepara o texto com Gemini.','book'],['03','Aprove no grupo','Confira a prévia. A matéria só será publicada depois de uma aprovação humana.','check'],['04','Compartilhe e aprenda','Distribua a notícia e acompanhe os resultados.','pulse']].map(([n,t,d,i])=>`<article class="info-card"><span class="flow-number">${n}</span>${icon(i)}<h2>${t}</h2><p>${d}</p></article>`).join('')}</div><section class="help-banner"><div>${icon('shield')}<h2>Conexões no seu tempo.</h2><p>Um módulo sem configuração fica em “Aguardando conexão”. As outras áreas continuam acessíveis. O primeiro marco entrega o visual e a estrutura de acesso.</p></div></section>`;
 }
-export function mountShell({root, user = null, preview = false, onLogout = () => {}, whatsappRequest}) {
+export function mountShell({root, user = null, preview = false, onLogout = () => {}, whatsappRequest,onAuthError=()=>{}}) {
   root.innerHTML = `<div class="workspace"><aside class="sidebar" id="sidebar"><button class="icon-button menu-close" aria-label="Fechar menu"><span aria-hidden="true">×</span></button><a class="brand" href="#inicio" aria-label="TomeZap, início"><span class="brand-mark">tn</span><span>TomeZap<small>CONTROLE DA REDAÇÃO</small></span></a><p class="nav-label">ESPAÇO DE TRABALHO</p><nav aria-label="Módulos do painel"><a href="#inicio" data-nav="inicio">${icon('grid')}Visão geral</a><a href="#biblioteca" data-nav="biblioteca">${icon('folder')}Biblioteca</a><a href="#rascunhos" data-nav="rascunhos">${icon('book')}Rascunhos</a><p class="nav-label">CANAIS E RESULTADOS</p>${modules.filter(m=>m.id!=='biblioteca').map(m=>`<a href="#${m.id}" data-nav="${m.id}">${icon(m.icon)}${m.label}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="#ajuda" data-nav="ajuda">${icon('help')}Como funciona</a><a href="https://tomezap.com.br" target="_blank" rel="noopener noreferrer">${icon('external')}Abrir o jornal</a><div class="sidebar-edition"><span class="edition-dot"></span>TOME NOTA NEWS<span>CE</span></div></div></aside>
   <div class="workspace-body"><header class="topbar"><div class="breadcrumb"><button class="icon-button menu-toggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><span>Seu espaço</span>${icon('chevron')}<strong id="breadcrumb-current">Visão geral</strong></div><div class="topbar-end"><span class="topbar-date">${new Intl.DateTimeFormat('pt-BR',{day:'numeric',month:'long',timeZone:'America/Fortaleza'}).format(new Date())}</span><span class="avatar" aria-label="${preview ? 'Prévia visual' : 'Usuário autenticado'}">${preview ? 'TN' : user?.role === 'owner' ? 'DN' : 'ED'}</span><div class="profile-label"><strong>${preview ? 'Sua redação' : user?.role === 'owner' ? 'Dono do painel' : 'Editor'}</strong><small>${preview ? 'Prévia visual' : 'Acesso autorizado'}</small></div><button class="icon-button logout-button" aria-label="${preview ? 'Ver tela de login' : 'Sair do painel'}" title="${preview ? 'Ver tela de login' : 'Sair do painel'}">${icon('logout')}</button></div></header>
   <div class="stage-notice">${icon(preview ? 'eye' : 'clock')}<span>${preview ? '<strong>Prévia visual.</strong> Navegue pelos módulos. Nenhum dado real é consultado ou publicado.' : '<strong>Redação em preparação.</strong> Rascunhos privados; publicação ainda bloqueada.'}</span>${preview ? '<a href="./">Ir para o login</a>' : ''}</div>
   <main id="main" tabindex="-1"></main><footer class="workspace-footer"><span>TomeZap <span class="footer-dot">·</span> Tome Nota News</span><span>Feito para a sua redação, no Ceará.</span></footer></div></div>`;
   const main = root.querySelector('#main'), sidebar = root.querySelector('.sidebar'), menu = root.querySelector('.menu-toggle');
+  const opsLink=document.createElement('a');opsLink.href='#operacao';opsLink.dataset.nav='operacao';opsLink.innerHTML=icon('pulse')+'Redação ao vivo';
+  root.querySelector('[data-nav=inicio]').after(opsLink);
+  let cleanupPage=()=>{};
   function closeMenu() {sidebar.classList.remove('open'); menu.setAttribute('aria-expanded','false');}
   menu.addEventListener('click', () => {const open = sidebar.classList.toggle('open'); menu.setAttribute('aria-expanded',String(open)); if (open) (sidebar.querySelector('[aria-current=page]') || sidebar.querySelector('a')).focus();});
   root.querySelector('.menu-close').addEventListener('click', () => {closeMenu(); menu.focus();});
   const onKey = event => {if (event.key === 'Escape') {closeMenu(); menu.focus();}};
   root.addEventListener('keydown', onKey);
   const draw = (focus = false) => {
+    cleanupPage();cleanupPage=()=>{};
     const id = location.hash.slice(1) || 'inicio';
     const item = modules.find(m=>m.id===id);
     const detail=id.match(/^rascunho\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/);
     const isDraft=id==='rascunhos' || Boolean(detail);
-    const resolved = isDraft ? 'rascunhos' : item ? id : id === 'ajuda' ? 'ajuda' : 'inicio';
+    const resolved = id==='operacao'?'operacao':isDraft ? 'rascunhos' : item ? id : id === 'ajuda' ? 'ajuda' : 'inicio';
+    if(resolved==='operacao'){
+      cleanupPage=mountOperations(main,{request:whatsappRequest,preview,onAuthError});
+      root.querySelector('#breadcrumb-current').textContent='Redação ao vivo';
+      root.querySelectorAll('[data-nav]').forEach(a=>{if(a.dataset.nav===resolved)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+      document.title='Redação ao vivo · TomeZap';closeMenu();
+      if(focus){main.focus({preventScroll:true});window.scrollTo({top:0,behavior:'instant'});}return;
+    }
     main.innerHTML = isDraft ? (preview ? (detail ? draftDetail(null,true) : draftList({},true)) : '<section class="empty-card"><h1>Conferindo seus rascunhos…</h1><p role="status">Carregando o conteúdo privado.</p></section>') : resolved === 'inicio' ? overview() : resolved === 'ajuda' ? helpPage() : resolved === 'whatsapp' ? whatsappPage(preview,user) : modulePage(item);
     if(isDraft && !preview && whatsappRequest){
       const target=main.firstElementChild;
@@ -78,7 +90,7 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
   window.addEventListener('hashchange', hashChange);
   root.querySelector('.logout-button').addEventListener('click', onLogout);
   draw();
-  return () => {window.removeEventListener('hashchange', hashChange); root.removeEventListener('keydown', onKey);};
+  return () => {cleanupPage();window.removeEventListener('hashchange', hashChange); root.removeEventListener('keydown', onKey);};
 }
 
 export function mountLogin(root, {message = '', onSubmit}) {
