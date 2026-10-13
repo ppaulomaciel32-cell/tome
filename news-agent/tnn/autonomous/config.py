@@ -27,6 +27,7 @@ class Config:
     tavily_monthly: int = 600
     sources: tuple[Source, ...] = ()
     age_hours: int = 72
+    manual_enabled: bool = False
 
     @classmethod
     def env(cls):
@@ -62,4 +63,4 @@ class Config:
         return cls(os.getenv('AUTONOMOUS_ENABLED') == 'true', os.getenv('GEMINI_FREE_TIER_CONFIRMED') == 'true',
             os.getenv('TAVILY_FREE_TIER_CONFIRMED') == 'true', 1200,
             bounded('MAX_PENDING_DRAFTS',5,1,10), bounded('GEMINI_MAX_CALLS_PER_DAY',20,1,72),
-            bounded('TAVILY_MAX_CALLS_PER_DAY',20,0,30), bounded('TAVILY_MAX_CALLS_PER_MONTH',600,0,900), tuple(sources))
+            bounded('TAVILY_MAX_CALLS_PER_DAY',20,0,30), bounded('TAVILY_MAX_CALLS_PER_MONTH',600,0,900), tuple(sources),manual_enabled=os.getenv('MANUAL_ENABLED')=='true')

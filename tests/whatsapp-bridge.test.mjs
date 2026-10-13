@@ -4,6 +4,7 @@ import {mkdtemp,rm,readFile,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
+import {parseManual} from '../whatsapp-bridge/manual.mjs';
 import {backupSession} from '../whatsapp-bridge/backup-session.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {openVault} from '../whatsapp-bridge/vault.mjs';
@@ -34,6 +35,49 @@ test('telemetria: aceita somente etapas/códigos fixos, sem texto privado',async
   await assert.rejects(f.c.cycleStatus({...body,stage:'PRIVATE_TOKEN'}),e=>e.code==='invalid_cycle');
   await assert.rejects(f.c.cycleStatus({...body,code:'PRIVATE_PROVIDER_DETAIL'}),e=>e.code==='invalid_cycle');
   assert.doesNotMatch(JSON.stringify(f.c.status()),/PRIVATE_TOKEN|PRIVATE_PROVIDER/);
+});
+test('manual: o dono no próprio número envia pauta e STATUS; o robô não entra em loop',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});
+  await f.connect();await f.bind();
+  await f.message({fromMe:true,text:'MANCHETE: Ponte do Pecém recebe vistoria após chuva',id:'own-message'});
+  assert.equal(f.c.status().manual.queued,1);assert.match(f.sends[0].msg.text,/Pauta recebida/);
+  await f.message({fromMe:true,text:f.sends[0].msg.text,id:'unknown-echo-id'});
+  await f.message({fromMe:true,text:'MANCHETE: Ponte do Pecém recebe vistoria após chuva',id:'own-message'});
+  assert.equal(f.c.status().manual.queued,1);assert.equal(f.sends.length,1);
+  await f.message({fromMe:true,text:'STATUS'});assert.match(f.sends[1].msg.text,/Pautas na fila: 1/);
+  const result=await f.c.claimCommand({publisherReady:true});assert.equal(result.command.kind,'pauta');
+  assert.doesNotMatch(JSON.stringify(result.command),new RegExp(number));
+});
+test('manual: namorada continua autorizada; outro grupo, histórico e intruso não entram',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
+  const text='Texto sobre uma pauta do Pecém para produzir a matéria.';
+  await f.message({sender:'100002@lid',text});assert.equal(f.c.status().manual.queued,1);
+  await f.message({sender:'malicious@lid',text});await f.message({fromMe:true,remote:'999999@g.us',text});
+  await f.message({fromMe:true,timestamp:1,text});await f.message({fromMe:true,type:'append',text});
+  assert.equal(f.c.status().manual.queued,1);
+});
+test('manual: APROVAR exige ID, prévia confirmada e assinatura; publicação duplicada não reenvia',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
+  const d=draftPreview();await f.message({fromMe:true,text:'APROVAR #'+d.id});assert.equal(f.c.status().manual.queued,0);
+  await f.c.preview(d);await f.message({fromMe:true,text:'APROVAR #'+d.id});
+  const {command}=await f.c.claimCommand({publisherReady:true});assert.equal(command.kind,'approve');assert.match(command.signature,/^[a-f0-9]{64}$/);
+  const result={id:command.id,lease:command.lease,code:'publication_pending',draftId:d.id,url:'https://tomezap.com.br/noticia/pauta-teste/'};
+  await f.c.commandResult(result);const before=f.sends.length;await f.c.commandResult(result);assert.equal(f.sends.length,before);
+  await f.c.publicationStatus({id:command.id,draftId:d.id,url:result.url});const sent=f.sends.length;
+  await f.c.publicationStatus({id:command.id,draftId:d.id,url:result.url});assert.equal(f.sends.length,sent);
+  await assert.rejects(f.c.publicationStatus({id:crypto.randomUUID(),draftId:d.id,url:result.url}),e=>e.code==='approval_required');
+});
+test('manual: lease expira, fila persiste e tokens não podem abrir o pareamento',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
+  await f.message({fromMe:true,text:'Faça uma matéria sobre a iluminação no acesso ao Pecém.'});
+  const first=(await f.c.claimCommand({})).command;assert.equal((await f.c.claimCommand({})).command,null);
+  f.advance(16*60000);const second=(await f.c.claimCommand({})).command;assert.equal(second.id,first.id);assert.notEqual(second.lease,first.lease);
+  await assert.rejects(f.c.commandResult({id:first.id,lease:first.lease,code:'failed'}),e=>e.code==='invalid_lease');
+  assert.equal(f.vault.get('manual:queue')[0].text.includes('Pecém'),true);
+});
+test('manual: comandos inválidos não viram pautas e texto comum passa sem prefixo',()=>{
+  assert.equal(parseManual('APROVAR'),null);assert.equal(parseManual('APROVAR #invalido'),null);assert.equal(parseManual('CORRIGIR título'),null);
+  assert.equal(parseManual('Texto suficiente sobre a iluminação pública do Pecém.').kind,'pauta');
 });
 test('configuração exige aprovação humana e separa chip dos editores',()=>{
   const base={WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'};

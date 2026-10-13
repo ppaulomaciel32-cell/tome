@@ -10,6 +10,7 @@ from .clients import Drafts,Bridge
 from .collection import Collector
 from .writer import Writer
 from .pipeline import Pipeline
+from .manual import Manual,Editorial
 
 def main():
     state=State()
@@ -17,6 +18,7 @@ def main():
     config=Config.env();stop=threading.Event()
     for sig in (signal.SIGTERM,signal.SIGINT): signal.signal(sig,lambda *_:stop.set())
     pipeline=Pipeline(config,state,Collector(config,state),Writer(),Drafts(),Bridge())
+    manual=Manual(config,state,pipeline.collector,pipeline.writer,pipeline.drafts,pipeline.bridge,Editorial())
     def heartbeat():
         while not stop.is_set():
             try: state.heartbeat()
@@ -25,6 +27,11 @@ def main():
     threading.Thread(target=heartbeat,daemon=True).start()
     previous=None
     while not stop.is_set():
+        try:
+            if manual.one():continue
+        except Exception:
+            # Sem conteúdo privado no log. A fila preserva pedidos incertos.
+            print('{"event":"manual_unavailable"}',flush=True)
         window=int(time.time())//config.interval
         if window!=previous:
             previous=window

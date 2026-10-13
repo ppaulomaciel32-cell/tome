@@ -71,6 +71,15 @@ test('fluxo: destinos fixos, sem seguir redirecionamentos, consultas compartilha
   await f.reader();assert.equal(f.calls.length,4);time+=10001;await f.reader();assert.equal(f.calls.length,8);
   assert.ok(f.calls.filter(c=>c.options).every(c=>c.options.redirect==='error'));
 });
+test('fluxo: modo manual só aparece ativo com trabalhador recente e backend configurado',async()=>{
+  const wa={connected:true,group:{},manual:{enabled:true,acceptOwnCommands:true,workerSeenAt:at,publisherReady:true}};
+  const live=await setup({wa,draftData:{drafts:[],capabilities:{manual:true}}}).reader();
+  assert.deepEqual(live.capabilities,{manualPauta:true,approval:true,publication:true});
+  assert.equal(live.stations.find(s=>s.id==='publicacao').state,'waiting');
+  const stale=await setup({wa:{...wa,manual:{...wa.manual,workerSeenAt:at-180000}},draftData:{drafts:[],capabilities:{manual:true}}}).reader();
+  assert.equal(stale.capabilities.publication,false);
+  assert.equal((await setup({wa,draftData:{drafts:[],capabilities:{manual:false}}}).reader()).capabilities.manualPauta,false);
+});
 test('fluxo: resposta enorme, formato inválido e slug malicioso não passam pela leitura pública',async()=>{
   const f=setup({news:[{id,title:'Teste',slug:'javascript:evil',published_at:new Date(at).toISOString()}]});
   assert.deepEqual((await f.reader()).publications,[]);

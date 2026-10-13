@@ -42,6 +42,7 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
   <div class="stage-notice">${icon(preview ? 'eye' : 'clock')}<span>${preview ? '<strong>Prévia visual.</strong> Navegue pelos módulos. Nenhum dado real é consultado ou publicado.' : '<strong>Redação em preparação.</strong> Rascunhos privados; publicação ainda bloqueada.'}</span>${preview ? '<a href="./">Ir para o login</a>' : ''}</div>
   <main id="main" tabindex="-1"></main><footer class="workspace-footer"><span>TomeZap <span class="footer-dot">·</span> Tome Nota News</span><span>Feito para a sua redação, no Ceará.</span></footer></div></div>`;
   const main = root.querySelector('#main'), sidebar = root.querySelector('.sidebar'), menu = root.querySelector('.menu-toggle');
+  if(!preview)root.querySelector('.stage-notice span').innerHTML='<strong>Redação com revisão humana.</strong> A publicação exige prévia e APROVAR #ID no grupo; confira a ativação na sala ao vivo.';
   const opsLink=document.createElement('a');opsLink.href='#operacao';opsLink.dataset.nav='operacao';opsLink.innerHTML=icon('pulse')+'Redação ao vivo';
   root.querySelector('[data-nav=inicio]').after(opsLink);
   let cleanupPage=()=>{};

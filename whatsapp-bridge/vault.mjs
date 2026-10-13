@@ -38,6 +38,13 @@ export function openVault({directory, key, codec = JSON}) {
   }
   return {
     get, put, transaction, remove:id=>removeRow.run(rowId(id)),
+    claimAndPut(id,now,key,value,ttl=86400000){
+      return transaction(()=>{
+        db.prepare('DELETE FROM receipts WHERE expires <= ?').run(now);
+        const inserted=db.prepare('INSERT OR IGNORE INTO receipts(id,expires) VALUES (?,?)').run(id,now+ttl).changes===1;
+        if(inserted)put(key,value);return inserted;
+      });
+    },
     claim(id, now, ttl = 86400000) {
       return transaction(()=>{
         db.prepare('DELETE FROM receipts WHERE expires <= ?').run(now);

@@ -27,6 +27,21 @@ class TextOnly(HTMLParser):
     def handle_data(self,data):
         if not self.skip: self.parts.append(data)
 
+class PageInfo(HTMLParser):
+    def __init__(self):super().__init__();self.title='';self.published='';self.in_title=False
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        if tag=='title':self.in_title=True
+        if tag=='meta':
+            name=attrs.get('property') or attrs.get('name')
+            if name in ('article:published_time','datePublished','pubdate','date') and not self.published:self.published=attrs.get('content','')
+            if name=='og:title':self.title=attrs.get('content','')
+        if tag=='time' and not self.published:self.published=attrs.get('datetime','')
+    def handle_endtag(self,tag):
+        if tag=='title':self.in_title=False
+    def handle_data(self,data):
+        if self.in_title:self.title+=data
+
 def clean(value):
     p=TextOnly(); p.feed(value or ''); return ' '.join(''.join(p.parts).split())
 
@@ -131,6 +146,37 @@ class Collector:
             except AgentError: errors+=1
         if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
         return sorted(result,key=lambda s:(local_score(s['title']),s['published_date']),reverse=True)
+    def manual(self,text,now):
+        # Texto do WhatsApp é uma PAUTA, não prova de um acontecimento.
+        try: rows=self.feeds(now)
+        except AgentError: rows=[]
+        query=text[:450]
+        matches=[r for r in rows if similar(query,r['title'],.45)]
+        for url in re.findall(r'https://[^\s<>\"]+',text)[:5]:
+            url=url.rstrip('.,;)]')
+            source=next((s for s in self.config.sources if allowed(url,s.domains)),None)
+            if not source:continue
+            try:
+                html=self.public.get(url,source.domains).decode('utf-8',errors='replace');info=PageInfo();info.feed(html)
+                if not 3<=len(info.title)<=500 or not fresh(info.published,now,168):continue
+                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':info.title,
+                    'url':canonical(url),'content':clean(html)[:12000],'published_date':date(info.published).isoformat()})
+            except AgentError:continue
+        if self.config.tavily_free and len(self.independent(matches))<2 and self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):
+            domains=sorted({d for s in self.config.sources for d in s.domains})
+            result=self.net.json('https://api.tavily.com/search',{'query':query+' Ceará','topic':'news','search_depth':'basic',
+                'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
+                {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
+            for row in result.get('results',[])[:5]:
+                source=next((s for s in self.config.sources if allowed(row.get('url'),s.domains)),None)
+                # Pauta manual pode tratar de notícia da semana; a data real segue no texto.
+                if not source or not fresh(row.get('published_date'),now,168):continue
+                content=clean(row.get('raw_content') or row.get('content'))[:12000]
+                title=str(row.get('title',''))[:500]
+                if len(title)<3 or not similar(query,title,.45):continue
+                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':title,
+                    'url':canonical(row['url']),'content':content,'published_date':date(row['published_date']).isoformat()})
+        return self.independent(matches)[:5]
     def enrich(self,candidate,rows,now):
         matches=[candidate]+[r for r in rows if r['url']!=candidate['url'] and similar(candidate['title'],r['title'])]
         sources=self.independent(matches)

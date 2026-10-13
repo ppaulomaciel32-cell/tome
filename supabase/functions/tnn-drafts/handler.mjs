@@ -63,11 +63,11 @@ export function createDraftHandler(env, {fetchImpl=fetch}={}) {
       if(request.method==='GET') {
         if(action==='context') {
           const [drafts,cycles,seen]=await Promise.all([
-            db('rascunhos?select=id,titulo,resumo,localidade,status,revisao,criado_em&order=criado_em.desc&limit=10'),
+            db((env.TNN_MANUAL_ENABLED==='true'?'tnn_pending_drafts':'rascunhos')+'?select=id,titulo,resumo,localidade,status,revisao,criado_em&order=criado_em.desc&limit=10'),
             db('ciclo_log?select=id,status,etapa,codigo,duracao_ms,criado_em,atualizado_em&order=criado_em.desc&limit=1'),
             db('noticias_vistas?select=hash,tipo,titulo,criado_em&order=criado_em.desc&limit=500')
           ]);
-          return reply(200,{drafts,cycle:cycles[0] || null,...(writer ? {seen}:{})});
+          return reply(200,{drafts,cycle:cycles[0] || null,capabilities:{manual:env.TNN_MANUAL_ENABLED==='true'},...(writer ? {seen}:{})});
         }
         if(action==='draft' && uuid.test(url.searchParams.get('id') || '')) {
           const rows=await db('rascunhos?select=id,slug,titulo,resumo,texto,localidade,fontes,evidencias,author,publisher,gerada_por,status,revisao,criado_em&id=eq.'+url.searchParams.get('id')+'&limit=1');
@@ -86,6 +86,8 @@ export function createDraftHandler(env, {fetchImpl=fetch}={}) {
       let body; try{body=JSON.parse(new TextDecoder().decode(bytes));}catch{return reply(400,{code:'invalid_body'});}
       if(!body || typeof body!=='object' || Array.isArray(body)) return reply(400,{code:'invalid_body'});
       const max=body.max_pending;
+      if(body.action==='manual_begin' && env.TNN_MANUAL_ENABLED==='true' && uuid.test(body.id || '') && hash.test(body.receipt || '') && Number.isInteger(max) && max>=1 && max<=10)
+        return reply(200,await db('rpc/tnn_manual_begin',{p_id:body.id,p_receipt:body.receipt,p_max_pending:max}));
       if(body.action==='begin' && uuid.test(body.id || '') && Number.isInteger(max) && max>=1 && max<=10)
         return reply(200,await db('rpc/tnn_drafts_begin',{p_id:body.id,p_max_pending:max}));
       if(body.action==='seen' && Array.isArray(body.hashes) && body.hashes.length>=1 && body.hashes.length<=6 && body.hashes.every(h=>hash.test(h))) {

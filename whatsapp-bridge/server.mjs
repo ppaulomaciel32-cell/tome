@@ -23,7 +23,7 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
         'POST /start':body=>controller.start(body),'POST /pair-code':()=>controller.pairCode(),
         'POST /group':body=>controller.selectGroup(body),'POST /test':()=>controller.test()
       };
-      const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
+      const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /commands/claim':body=>controller.claimCommand(body),'POST /commands/result':body=>controller.commandResult(body),'POST /publication-status':body=>controller.publicationStatus(body),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
       const action=(producer?producerRoutes:routes)[req.method+' '+path];if(!action)throw new BridgeError(404,'not_found','Endereço não encontrado.');
       let body={};
       if(req.method==='POST') {

@@ -147,7 +147,7 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
         const data=await wa('/'+waRoute.p);
         if(waRoute.p==='status'){
           // Uma mudança futura no provedor não pode vazar QR para editores.
-          const fields=['state','connected','configured','group','dedicatedNumber','authorizedEditors','connectedAt','lastError','publicationEnabled','requiresApproval','cycle'];
+          const fields=['state','connected','configured','group','dedicatedNumber','authorizedEditors','connectedAt','lastError','publicationEnabled','requiresApproval','cycle','manual'];
           return send(200,Object.fromEntries(fields.filter(k=>k in data).map(k=>[k,data[k]])));
         }
         return send(200,data);

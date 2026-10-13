@@ -1,5 +1,10 @@
 # Sala de operações — TomeZap
 
+> Atualização posterior: a entrada de pautas e aprovação foi implementada no
+> código. Para o estado atual e ativação, seguir
+> [Correção de pautas e aprovação](CORRECAO_PAUTAS_APROVACAO_WHATSAPP.md).
+> O relato abaixo descreve o marco anterior.
+
 Entrega de 12/10/2026, horário de Fortaleza. **Código salvo e testado localmente;
 instalação na VPS e publicação da nova versão ainda pendentes.**
 

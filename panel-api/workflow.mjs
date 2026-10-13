@@ -48,13 +48,16 @@ export function createWorkflowReader(config,{whatsapp,drafts,fetchImpl=fetch,now
       .map(d=>({id:d.id,title:d.titulo}));
     const site=siteResult.status==='fulfilled'?siteResult.value.status:null;
     const publications=newsResult.status==='fulfilled'?newsResult.value:null;
+    const workerFresh=typeof wa?.manual?.workerSeenAt==='number' && wa.manual.workerSeenAt<=now()+60000 && now()-wa.manual.workerSeenAt<120000;
+    const manualReady=wa?.manual?.enabled===true && workerFresh && data?.capabilities?.manual===true;
+    const publisherReady=manualReady && wa?.manual?.publisherReady===true;
     const station=(id,state,detail)=>({id,state,detail});
     const list=[
       station('whatsapp',wa?wa.connected===true?(wa.group?'ready':'blocked'):'blocked':'unknown',wa?wa.connected===true?(wa.group?'Chip conectado e grupo selecionado. Isso não comprova que a IA está ativa.':'Chip conectado; confirme o grupo na tela de pareamento.'):'A ponte respondeu, mas o chip não está conectado.':'Não foi possível consultar a ponte WhatsApp.'),
       station('coleta','unknown','Sem informação recente do trabalhador de redação.'),
       station('redacao','unknown','Sem informação recente de uma chamada ao Gemini.'),
       station('revisao',data?'waiting':'unknown',data?recentDrafts.length?recentDrafts.length+' rascunho(s) recente(s) para ler.':'Nenhum rascunho salvo.':'A leitura privada dos rascunhos ainda não respondeu.'),
-      station('publicacao','blocked','O módulo de aprovação e publicação ainda não foi implementado nesta versão.'),
+      station('publicacao',publisherReady?'waiting':'blocked',publisherReady?'Publicador configurado. Cada texto ainda precisa de APROVAR #ID após a prévia.':'A aprovação/publicação manual aguarda configuração e confirmação do trabalhador.'),
       station('site',site>=200 && site<300?'ready':site?'blocked':'unknown',site>=200 && site<300?'O site respondeu HTTP '+site+'. Isso não confirma uma matéria no ar.':site?'O site respondeu HTTP '+site+'.':'Não foi possível verificar o site público.')
     ];
     if(cycle && !cycle.stale){
@@ -74,17 +77,19 @@ export function createWorkflowReader(config,{whatsapp,drafts,fetchImpl=fetch,now
         list[0].state='working';list[0].detail='O trabalhador informou que está enviando a prévia ao grupo. Ainda não há confirmação de entrega.';
       }
     }
-    const blockers=[{id:'publication_not_implemented',text:'APROVAR e publicar no site ainda não funcionam nesta versão.'},
-      {id:'manual_pauta_not_implemented',text:'Pedido livre como “faça uma matéria” ainda não entra na fila. O fluxo preparado começa por RSS.'}];
+    const blockers=[];
+    if(!publisherReady)blockers.push({id:'publication_not_implemented',text:'APROVAR #ID aguarda configuração da assinatura, função editorial e trabalhador.'});
+    if(!manualReady)blockers.push({id:'manual_pauta_not_implemented',text:'A fila manual está sem confirmação de configuração/trabalhador. O texto ainda não pode virar matéria neste estado.'});
+    if(manualReady)blockers.push({id:'human_approval',text:'Envie sua pauta, leia a prévia e responda APROVAR #ID. Nada vai ao site apenas porque foi recebido.'});
     if(!wa || !wa.connected || !wa.group)blockers.unshift({id:'whatsapp',text:list[0].detail});
     if(!data)blockers.push({id:'drafts_unavailable',text:'A API de rascunhos/tokens precisa ser conferida na VPS e no Supabase.'});
     if(!cycle)blockers.push({id:'no_cycle',text:'Nenhum ciclo com horário válido foi informado. Não é possível afirmar que o robô está produzindo.'});
     else if(cycle.stale)blockers.push({id:'stale_cycle',text:'O ciclo está sem atualização recente. A tela não o mostra como trabalhando.'});
     return {schemaVersion:1,observedAt:new Date(started).toISOString(),mode:'live',stations:list,cycle,events,
       drafts:recentDrafts,publications,siteHttpStatus:site,blockers,
-      capabilities:{manualPauta:false,approval:false,publication:false},
+      capabilities:{manualPauta:manualReady,approval:publisherReady,publication:publisherReady},
       limits:{pollSeconds:15,cycleMinutes:20,draftsListed:recentDrafts.length,publicationCheck:'database_only'},
-      rules:['Mensagens enviadas pelo próprio número do robô são ignoradas. Use um editor autorizado no grupo confirmado.','Não é necessário nem correto declarar chip exclusivo se você estiver usando seu número pessoal. A conexão não oficial tem risco de bloqueio.']};
+      rules:[wa?.manual?.acceptOwnCommands===true?'O próprio número pode enviar pautas/comandos no grupo confirmado; respostas do robô são descartadas para evitar loop.':'Mensagens do próprio número aguardam WA_ACCEPT_OWN_COMMANDS=true na ponte.','Não é necessário nem correto declarar chip exclusivo se você estiver usando seu número pessoal. A conexão não oficial tem risco de bloqueio.']};
   };
   return async()=>{
     if(cached && now()<until)return cached;
