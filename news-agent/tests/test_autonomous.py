@@ -12,7 +12,7 @@ from tnn.core import AgentError
 from tnn.autonomous.config import Config,Source
 from tnn.autonomous.collection import Collector,PublicFetch,parse_feed,canonical,similar,clean,digest
 from tnn.autonomous.store import State
-from tnn.autonomous.writer import Writer
+from tnn.autonomous.writer import Writer,anchor
 from tnn.autonomous.pipeline import Pipeline
 
 SOURCE=Source('orgao-a','Órgão A','https://a.example/feed',('a.example',),'orgao-a')
@@ -172,6 +172,15 @@ class AutonomousTests(unittest.TestCase):
         sent=fake.generate.call_args.args[1]
         self.assertEqual(sent['modo'],'fonte_unica_oficial');self.assertNotIn('official',sent['fontes'][0]);self.assertNotIn('publisher_group',sent['fontes'][0])
         self.assertEqual(Writer.mode([{**ROWS[0],'owner':True}]),'material_redacao');self.assertEqual(Writer.mode(ROWS),'multiplas_fontes')
+    def test_evidence_may_quote_the_source_title_and_is_trimmed_to_a_literal_span(self):
+        source=ROWS[0]
+        self.assertEqual(anchor(TITLE,source),TITLE)
+        joined=source['content'][:96].strip()+' Além disso, o prefeito prometeu uma ponte nova em dezembro.'
+        self.assertEqual(anchor(joined,source),source['content'][:96].strip())
+        for bad in ('Paráfrase livre que não aparece em lugar nenhum da fonte.','curto',None,'x'*600):self.assertIsNone(anchor(bad,source))
+        fake=Mock();valid=article();valid['evidencias'][0]['trecho']=TITLE;valid['evidencias'][1]['trecho']=joined
+        fake.generate.return_value=json.dumps(valid);draft=Writer(fake).write(TITLE,ROWS)
+        self.assertEqual(draft['evidencias'][1]['trecho'],source['content'][:96].strip())
     def test_config_refuses_auto_publish_and_unreviewed_model(self):
         with patch.dict(os.environ,{'AGENTE_REQUER_APROVACAO':'false'}):
             with self.assertRaises(AgentError):Config.env()

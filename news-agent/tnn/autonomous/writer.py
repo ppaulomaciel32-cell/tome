@@ -4,6 +4,15 @@ from pathlib import Path
 from ..core import AgentError, normalize, parse_article
 from ..providers import Gemini
 
+def anchor(excerpt,source):
+    """Devolve um trecho literal da fonte (texto ou título) ou None. Nunca aceita paráfrase."""
+    if not isinstance(excerpt,str):return None
+    haystack=normalize(source['content'])+' \n '+normalize(source['title'])
+    if 20<=len(excerpt)<=500 and normalize(excerpt) in haystack:return excerpt
+    # O modelo às vezes emenda duas frases: fica só a maior parte que existe na fonte.
+    parts=sorted((p.strip() for p in re.split(r'(?<=[.!?;:])\s+|\s+[—–-]\s+|\.\.\.|…',excerpt)),key=len,reverse=True)
+    return next((p for p in parts if 20<=len(p)<=500 and normalize(p) in haystack),None)
+
 class Writer:
     schema=json.loads(json.dumps(Gemini.response_schema))
     success=schema['anyOf'][0]
@@ -34,7 +43,9 @@ class Writer:
                 matches=[e for e in evidence if e['campo']==field]
                 if len(matches)!=1: raise ValueError()
                 e=matches[0];source=next(s for s in sources if s['id']==e['fonte_id'])
-                if not 20<=len(e['trecho'])<=500 or normalize(e['trecho']) not in normalize(source['content']): raise ValueError()
+                literal=anchor(e['trecho'],source)
+                if not literal: raise ValueError()
+                e['trecho']=literal
         except (KeyError,TypeError,ValueError,StopIteration): raise AgentError('A redação não trouxe evidências verificáveis para todos os trechos.') from None
         article.pop('capa_hint',None)
         return {**article,'evidencias':evidence,'fontes':sources}

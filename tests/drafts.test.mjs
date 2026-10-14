@@ -42,6 +42,11 @@ test('rascunhos: fonte única só passa quando oficial ou material do editor, co
   const short=makeDraft();short.texto=single({}).texto;assert.equal(validateDraft(short,seen()),false);
   assert.equal(validateDraft(makeDraft(),two),false);
 });
+test('rascunhos: evidência pode citar o título da fonte, nunca texto de outra fonte',()=>{
+  const d=makeDraft();d.fontes[0].title='Título oficial da nota usada como evidência';d.evidencias[0]={campo:'titulo',fonte_id:d.fontes[0].id,trecho:'Título oficial da nota usada como evidência'};
+  assert.equal(validateDraft(d,seen()),true);
+  d.evidencias[0].fonte_id=d.fontes[1].id;assert.equal(validateDraft(d,seen()),false);
+});
 test('rascunhos: capa só do servidor do jornal; crédito exige capa e não aceita marcação',()=>{
   const url='https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg';
   assert.equal(validateDraft({...makeDraft(),capa_url:url},seen()),true);

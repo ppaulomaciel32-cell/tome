@@ -37,7 +37,8 @@ export function validateDraft(draft, seen) {
     const matches=draft.evidencias.filter(e=>e?.campo===field);
     if(matches.length!==1) return false;
     const e=matches[0], source=draft.fontes.find(s=>s.id===e.fonte_id);
-    if(!source || !text(e.trecho,20,500) || !normalize(source.content).includes(normalize(e.trecho))) return false;
+    // O trecho precisa existir no texto ou no título da fonte indicada.
+    if(!source || !text(e.trecho,20,500) || !(normalize(source.content)+' \n '+normalize(source.title)).includes(normalize(e.trecho))) return false;
   }
   if(!Array.isArray(seen) || seen.length < (single?2:3) || seen.length>6 || new Set(seen.map(s=>s?.hash)).size!==seen.length) return false;
   if(seen.filter(s=>s.tipo==='titulo').length!==1 || seen.some(s=>!hash.test(s.hash || '') || !['url','titulo'].includes(s.tipo) || !text(s.titulo,3,500))) return false;
