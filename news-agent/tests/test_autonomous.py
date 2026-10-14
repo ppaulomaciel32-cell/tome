@@ -10,7 +10,7 @@ from unittest.mock import Mock,patch
 import fakeredis
 from tnn.core import AgentError
 from tnn.autonomous.config import Config,Source
-from tnn.autonomous.collection import Collector,PublicFetch,parse_feed,canonical,similar,clean,digest,local_score
+from tnn.autonomous.collection import Collector,PublicFetch,parse_feed,canonical,similar,clean,digest,local_score,listing_links,printed_date
 from tnn.autonomous.store import State
 from tnn.autonomous.writer import Writer,anchor
 from tnn.autonomous.pipeline import Pipeline
@@ -191,6 +191,26 @@ class AutonomousTests(unittest.TestCase):
         self.assertEqual(sent['correcao_solicitada'],'deixe a manchete mais direta');self.assertEqual(sent['versao_anterior']['texto'],valid['texto'])
         fake.generate.return_value=json.dumps({**valid,'titulo':'Ponte recebe 98457 pessoas'})
         with self.assertRaises(AgentError):writer.correct(old,'invente um número')
+    def test_city_hall_listing_reads_newest_pages_once_and_uses_printed_date(self):
+        city=Source('prefeitura','Prefeitura de Teste','https://cidade.example/informa',('cidade.example',),'prefeitura',True,True)
+        today=datetime.fromtimestamp(NOW,timezone(timedelta(hours=-3)));stamp=today.strftime('%d/%m/%Y');old=(today-timedelta(days=30)).strftime('%d/%m/%Y')
+        listing='<a href="/informa/7/noticia-antiga">a</a><a href="/informa/12/obra-na-estrada">b</a><a href="/informa/12/obra-na-estrada">b</a><a href="/informa/9/sem-data">c</a><a href="https://evil.example/informa/99/x">d</a>'
+        body='A prefeitura informou que a obra na estrada de acesso ao distrito começa na próxima semana e muda o trânsito local. '*3
+        pages={'/informa':listing,'/informa/12/obra-na-estrada':'<title>Obra na estrada começa na próxima semana</title><p>Por Fulano '+stamp+'</p><article>'+body+'</article>',
+            '/informa/9/sem-data':'<title>Página sem data nenhuma</title><p>'+body+'</p>','/informa/7/noticia-antiga':'<title>Notícia antiga</title><p>'+old+'</p><p>'+body+'</p>'}
+        public=Mock();public.get.side_effect=lambda url,domains:pages[url.replace('https://cidade.example','')].encode()
+        collector=Collector(dataclasses.replace(self.config,sources=(city,)),self.state,public=public)
+        self.assertEqual(listing_links(listing),['/informa/12/obra-na-estrada','/informa/9/sem-data','/informa/7/noticia-antiga'])
+        rows=collector.feeds(NOW);self.assertEqual([r['url'] for r in rows],['https://cidade.example/informa/12/obra-na-estrada'])
+        self.assertTrue(rows[0]['official']);self.assertEqual(rows[0]['title'],'Obra na estrada começa na próxima semana');self.assertEqual(public.get.call_count,4)
+        # Segunda rodada: só a lista é baixada de novo.
+        collector.feeds(NOW);self.assertEqual(public.get.call_count,5)
+        self.assertIsNone(printed_date('sem data'));self.assertIsNone(printed_date('31/02/2026'));self.assertEqual(printed_date('em 05/10/2026 às 9h').day,5)
+    def test_local_story_stays_valid_for_a_week_but_regional_only_three_days(self):
+        when=(datetime.fromtimestamp(NOW,timezone.utc)-timedelta(days=5)).strftime('%a, %d %b %Y %H:%M:%S +0000')
+        item=lambda title:('<rss><item><title>'+title+'</title><link>https://a.example/x</link><pubDate>'+when+'</pubDate><description>Texto da nota oficial.</description></item></rss>').encode()
+        self.assertEqual(len(parse_feed(item('Governo do Ceará anuncia programa estadual'),SOURCE,NOW)),0)
+        self.assertEqual(len(parse_feed(item('Estrada do Pecém recebe nova sinalização'),SOURCE,NOW)),1)
     def test_config_refuses_auto_publish_and_unreviewed_model(self):
         with patch.dict(os.environ,{'AGENTE_REQUER_APROVACAO':'false'}):
             with self.assertRaises(AgentError):Config.env()

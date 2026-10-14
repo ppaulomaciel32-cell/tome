@@ -2,13 +2,14 @@
 from __future__ import annotations
 import hashlib
 import http.client
+import json
 import ipaddress
 import re
 import socket
 import ssl
 import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -54,6 +55,20 @@ def page_date(html):
     found=re.search(r'"datePublished"\s*:\s*"([^"]{8,40})"',html)
     if found and date(found.group(1)):info.published=found.group(1)
     return info
+
+LISTING_LINK=re.compile(r'href="(/informa/(\d{1,7})/[a-z0-9-]{3,200})"')
+def listing_links(html,limit=5):
+    """Notícias mais novas de um portal de prefeitura (padrão /informa/ID/slug)."""
+    found={}
+    for path,number in LISTING_LINK.findall(html):found.setdefault(path,int(number))
+    return [path for path,_ in sorted(found.items(),key=lambda item:item[1],reverse=True)[:limit]]
+
+def printed_date(html):
+    """Data impressa na página (dd/mm/aaaa), quando não há metadado. Início do dia em Fortaleza, para nunca cair no futuro."""
+    found=re.search(r'(?<![\d/])(\d{2})/(\d{2})/(20\d{2})(?![\d/])',html)
+    if not found:return None
+    try:return datetime(int(found.group(3)),int(found.group(2)),int(found.group(1)),tzinfo=timezone(timedelta(hours=-3))).astimezone(timezone.utc)
+    except ValueError:return None
 
 OWNER_URL='https://tomezap.com.br/sobre/'
 def owner_material(text,now):
@@ -160,8 +175,10 @@ def parse_feed(raw,source,now):
         for n in item:
             if tag(n)=='link' and n.attrib.get('rel','alternate')=='alternate' and n.attrib.get('href'): link=n.attrib['href'];break
         title=clean(val('title'))[:500]; published=val('pubdate','published','updated','date')
-        if not 3<=len(title)<=500 or not allowed(link,source.domains) or not fresh(published,now): continue
+        if not 3<=len(title)<=500 or not allowed(link,source.domains): continue
         content=clean(val('encoded','content','description','summary'))[:12000]
+        # Notícia local vale a semana inteira; o restante, três dias.
+        if not fresh(published,now) and not (fresh(published,now,168) and local_score(title,content)>=6): continue
         rows.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,
             'title':title,'url':canonical(link),'content':content,'published_date':date(published).isoformat(),
             **({'official':True} if source.official else {})})
@@ -169,10 +186,37 @@ def parse_feed(raw,source,now):
 
 class Collector:
     def __init__(self,config,quota,public=None,net=None): self.config=config;self.quota=quota;self.public=public or PublicFetch();self.net=net or Net()
+    def remember(self,url,row=None):
+        # Página já lida fica três dias em memória para não ser baixada a cada rodada.
+        key='tnn:drafts:v1:page:'+digest(url)
+        try:
+            if row is None:
+                raw=self.quota.client.get(key);return json.loads(raw) if isinstance(raw,(str,bytes)) else None
+            self.quota.client.set(key,json.dumps(row,ensure_ascii=False),ex=3*86400)
+        except Exception:return None
+    def listing(self,source,now):
+        page=self.public.get(source.feed_url,source.domains).decode('utf-8',errors='replace')
+        origin=urlsplit(source.feed_url);rows=[]
+        for path in listing_links(page):
+            url=canonical(urlunsplit((origin.scheme,origin.netloc,path,'','')))
+            row=self.remember(url)
+            if row is None:
+                row={}
+                try:
+                    html=self.public.get(url,source.domains).decode('utf-8',errors='replace');info=page_date(html)
+                    when=date(info.published) or printed_date(html);title=' '.join(info.title.split())[:500]
+                    if when and 3<=len(title)<=500:
+                        row={'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':title,'url':url,
+                            'content':clean(html)[:12000],'published_date':when.isoformat(),**({'official':True} if source.official else {})}
+                except AgentError:continue
+                self.remember(url,row)
+            # Portal municipal publica pouco: a notícia vale por dez dias.
+            if row and fresh(row['published_date'],now,240):rows.append(row)
+        return rows
     def feeds(self,now):
         result=[];errors=0
         for source in self.config.sources:
-            try: result.extend(parse_feed(self.public.get(source.feed_url,source.domains),source,now))
+            try: result.extend(self.listing(source,now) if source.listing else parse_feed(self.public.get(source.feed_url,source.domains),source,now))
             except AgentError: errors+=1
         if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
         return sorted(result,key=lambda s:(local_score(s['title'],s['content']),s['published_date']),reverse=True)

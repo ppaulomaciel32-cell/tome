@@ -15,6 +15,7 @@ class Source:
     domains: tuple[str, ...]
     publisher_group: str
     official: bool = False
+    listing: bool = False
 
 @dataclass(frozen=True)
 class Config:
@@ -59,7 +60,8 @@ class Config:
                 name = str(row['name']).strip()
                 if not 2 <= len(name) <= 100: raise ValueError()
                 if row.get('official', False) not in (True, False): raise ValueError()
-                sources.append(Source(row['id'], name, row['feed_url'], domains, row['publisher_group'], row.get('official') is True))
+                if row.get('kind', 'rss') not in ('rss', 'listing'): raise ValueError()
+                sources.append(Source(row['id'], name, row['feed_url'], domains, row['publisher_group'], row.get('official') is True, row.get('kind') == 'listing'))
             except (KeyError, TypeError, ValueError): raise AgentError('Confira URL, domínio e grupo editorial de cada fonte.') from None
         if len({s.id for s in sources}) != len(sources): raise AgentError('As fontes precisam de IDs únicos.')
         return cls(os.getenv('AUTONOMOUS_ENABLED') == 'true', os.getenv('GEMINI_FREE_TIER_CONFIRMED') == 'true',
