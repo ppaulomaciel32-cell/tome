@@ -20,6 +20,7 @@ test('resumo GA4: falta de credencial não chama APIs nem inventa números',asyn
 test('posições e CSP: GA4/Cloudinary, consentimento e IDs configuráveis no build',async()=>{
  const read=p=>fs.readFile(new URL('../'+p,import.meta.url),'utf8');
  const build=await read('scripts/build-public-site.mjs');assert.match(build,/ADSENSE_SLOT_/);assert.match(build,/GA4_MEASUREMENT_ID/);
- const home=await read('public-site/index.html');for(const p of ['top','home','end'])assert.ok(home.includes('data-ad-position="'+p+'"'));
+ const article=await read('public-site/noticia.html');for(const p of ['top','end'])assert.ok(article.includes('data-ad-position="'+p+'"'));
+ assert.match(build,/data-ad-position="home"/);
  assert.match(build,/data-ad-position="middle"/);assert.match(await read('public-site/_headers'),/google-analytics\.com/);
 });

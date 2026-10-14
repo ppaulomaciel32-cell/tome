@@ -12,15 +12,18 @@
   const slug = new URLSearchParams(location.search).get("slug") || new URLSearchParams(location.search).get("noticia");
   const localityValue = document.documentElement?.dataset?.localidade || new URLSearchParams(location.search).get("localidade");
   const locality = ["sao-goncalo","pecem","taiba","croata","paracuru","regiao"].includes(localityValue) ? localityValue : "";
-  let publications = [];
-  let offset = 0;
-  let total = 0;
-  const pageSize = 24;
+  let feed;
+  let initial = true;
+  const pageSize = 12;
   let loading = false;
   let searchTerm = "";
   let listVersion = 0;
   let listController = null;
   let debounceTimer = null;
+  let observer = null;
+  let failed = false;
+  let cutoff = new Date().toISOString();
+  let lastHighlightBatch = 0;
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -80,7 +83,7 @@
     } finally { clearTimeout(timer); parentSignal?.removeEventListener("abort", cancel); }
   }
   function listQuery() {
-    const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: String(pageSize), offset: String(offset) });
+    const query = new URLSearchParams({ select: publicFields, order: "published_at.desc,slug.asc", limit: String(initial ? 24 : pageSize), offset: String(feed.offset), published_at: "lte." + cutoff });
     if (locality) query.set("localidade", "eq." + locality);
     if (searchTerm.length >= 3) query.set("search", "wfts(portuguese)." + searchTerm);
     else if (searchTerm) {
@@ -96,32 +99,85 @@
     }
     return query;
   }
-  function renderList() {
-    const visible = publications;
-    grid.replaceChildren();
-    count.textContent = visible.length + " de " + total + (total === 1 ? " matéria" : " matérias");
-    if (!visible.length) {
+  function updateList() {
+    count.textContent = feed.count + " de " + feed.total + (feed.total === 1 ? " matéria" : " matérias");
+    more.hidden = feed.done;
+    more.textContent = "Carregar mais notícias";
+    status.classList.remove("error");
+    status.classList.toggle("visible", feed.done);
+    status.textContent = feed.done ? "Você está em dia" : "";
+    if (!feed.count && !grid.firstChild) {
       const empty = el("div", "empty-state");
       empty.append(el("strong", "", searchTerm ? "Nenhum resultado encontrado." : "A redação ainda não publicou notícias."));
       empty.append(el("p", "", searchTerm ? "Tente outra busca." : "As matérias aprovadas aparecerão aqui."));
       grid.append(empty);
     }
-    visible.forEach(item => {
+  }
+  function card(item) {
       const card = el("article", "news-card");
       const link = el("a", "card-link");
       link.href = articleUrl(item);
       const cover = imageUrl(item.capa);
-      if (cover) {
-        const image = el("img", "card-image");
-        image.src = cover; image.alt = item.titulo; image.loading = "lazy"; image.decoding = "async";
-        link.append(image);
+      const image = el("img", "card-image");
+      image.src = cover || "/assets/images/og-tome-nota.png"; image.alt = item.titulo; image.loading = "lazy"; image.decoding = "async";
+      image.setAttribute("loading", "lazy");
+      image.width = 800; image.height = 450;
+      if (/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/.test(cover)) {
+        image.srcset = cover.replace("-1600.jpg", "-800.webp") + " 800w, " + cover + " 1600w";
+        image.sizes = "(max-width: 639px) calc(100vw - 30px), (max-width: 959px) 46vw, 360px";
       }
+      link.append(image);
       const body = el("div", "card-body");
       const time = el("time", "card-meta", dateText(item.publicado_em));
       if (item.publicado_em) time.dateTime = item.publicado_em;
       body.append(time, el("h3", "card-title", item.titulo), el("p", "card-summary", item.resumo));
-      link.append(body); card.append(link); grid.append(card);
+      link.append(body); card.append(link); return card;
+  }
+  let regularCards = 0;
+  function feedAd() {
+    const aside = el("aside", "feed-ad"); aside.setAttribute("aria-label", "Publicidade");
+    aside.append(el("span", "ad-label", "Publicidade"));
+    const house = el("div", "house-ad");
+    house.append(el("span", "house-ad-brand", "TOME NOTA · COMUNIDADE"), el("h3", "", "Sua marca, perto de quem vive aqui."));
+    const contact = el("a", "house-ad-link", "Anuncie no Tome Nota"); contact.href = "/contato.html"; house.append(contact);
+    const ins = el("ins", "adsbygoogle"); ins.dataset.adPosition = "home"; ins.dataset.adClient = config.adClient;
+    ins.dataset.adSlot = config.adSlots?.home || "0000000000";
+    ins.dataset.adFormat = "horizontal"; ins.dataset.fullWidthResponsive = "true"; ins.hidden = true; ins.style.display = "block";
+    aside.append(house, ins); return aside;
+  }
+  function appendCards(items) {
+    items.forEach(item => {
+      grid.append(card(item)); regularCards++;
+      if (regularCards >= 6 && (regularCards - 6) % 12 === 0) grid.append(feedAd());
     });
+    window.TNNAds?.refresh();
+  }
+  function skeletons() {
+    const nodes = Array.from({length: 3}, () => {
+      const node = el("div", "news-card news-skeleton"); node.setAttribute("aria-hidden", "true");
+      node.append(el("div", "card-placeholder"), el("div", "card-body")); grid.append(node); return node;
+    });
+    return () => nodes.forEach(node => node.remove());
+  }
+  async function highlights(version, signal) {
+    if (searchTerm || !feed.highlightsDue || lastHighlightBatch === feed.batches) return;
+    lastHighlightBatch = feed.batches;
+    const query = new URLSearchParams({select: publicFields, order: "published_at.desc,slug.asc", limit: "100", and: "(published_at.gte." + new Date(Date.now() - 30 * 86400000).toISOString() + ",published_at.lte." + cutoff + ")"});
+    if (locality) query.set("localidade", "eq." + locality);
+    try {
+      const pool = await request(query, signal);
+      if (version !== listVersion) return;
+      const selected = feed.highlights(pool);
+      if (!selected.length) return;
+      const block = el("section", "feed-highlights"); block.setAttribute("aria-label", "Destaques do Tome Nota");
+      block.append(el("h2", "", "Destaques do Tome Nota"), el("p", "", "Outras histórias da região, publicadas nos últimos 30 dias."));
+      const cards = el("div", "highlights-grid"); selected.forEach(item => cards.append(card(item))); block.append(cards); grid.append(block);
+    } catch { /* Destaques são opcionais: a lista e o botão continuam funcionando. */ }
+  }
+  function observeEnd() {
+    observer?.disconnect();
+    if (!observer || failed || feed.done || loading || debounceTimer !== null) return;
+    observer.observe(more);
   }
   function meta(selector, content) { document.querySelector(selector)?.setAttribute("content", content); }
   function articleMetadata(item) {
@@ -196,26 +252,33 @@
     }
   }
   async function loadList() {
-    if (loading || debounceTimer !== null) return;
+    if (loading || feed.done || debounceTimer !== null) return;
     const version = listVersion;
     const controller = new AbortController();
     listController = controller;
-    loading = true; more.disabled = true; status.classList.add("visible");
+    loading = true; failed = false; observer?.disconnect();
+    const removeSkeletons = skeletons();
+    grid.setAttribute("aria-busy", "true");
+    more.disabled = true; status.classList.add("visible");
     status.textContent = "Carregando notícias...";
     try {
+      const limit = initial ? 24 : pageSize;
       const result = await request(listQuery(), controller.signal, true);
       if (version !== listVersion) return;
       const { items } = result;
-      total = result.total;
-      publications.push(...items); offset += items.length;
-      more.hidden = offset >= total;
-      more.textContent = "Carregar mais notícias";
-      renderList(); status.classList.remove("visible", "error");
+      removeSkeletons(); appendCards(feed.accept(items, result.total, limit)); initial = false;
+      await highlights(version, controller.signal);
+      if (version !== listVersion) return;
+      updateList();
     } catch {
       if (version !== listVersion || controller.signal.aborted) return;
-      status.textContent = "Não foi possível carregar as notícias. Tente novamente.";
-      status.classList.add("visible", "error"); more.hidden = false; more.textContent = "Tentar novamente";
-    } finally { if (version === listVersion) { loading = false; more.disabled = false; } }
+      failed = true;
+      status.textContent = "Não foi possível carregar. Sua lista continua aqui.";
+      status.classList.add("visible", "error"); more.hidden = false; more.textContent = "Tentar de novo";
+    } finally {
+      removeSkeletons();
+      if (version === listVersion) { loading = false; more.disabled = false; grid.setAttribute("aria-busy", "false"); observeEnd(); }
+    }
   }
   function searchChanged() {
     const next = search.value.trim().slice(0, 100);
@@ -223,13 +286,32 @@
     clearTimeout(debounceTimer);
     searchTerm = next; listVersion++;
     listController?.abort();
-    publications = []; offset = 0; total = 0; loading = false;
+    observer?.disconnect(); feed = new window.TNNFeedModel(); initial = true; regularCards = 0; lastHighlightBatch = 0;
+    cutoff = new Date().toISOString(); loading = false; failed = false;
     more.hidden = true; grid.replaceChildren(); count.textContent = "";
     status.classList.remove("error"); status.classList.add("visible");
     status.textContent = "Buscando notícias...";
     debounceTimer = setTimeout(() => { debounceTimer = null; loadList(); }, 300);
   }
   if (document.getElementById("article-view") || slug) renderArticle();
-  else { search.addEventListener("input", searchChanged); more.addEventListener("click", loadList); loadList(); }
+  else {
+    feed = new window.TNNFeedModel();
+    if (window.IntersectionObserver) {
+      try { observer = new window.IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting) && !failed) loadList();
+      }, {rootMargin: "240px 0px"}); } catch { /* Botão é a alternativa permanente. */ }
+    }
+    search.addEventListener("input", searchChanged);
+    more.addEventListener("click", loadList);
+    const seedNode = document.getElementById("news-seed");
+    let seed;
+    try { seed = JSON.parse(seedNode?.textContent || "null"); } catch { seed = null; }
+    if (seed && Array.isArray(seed.items) && Number.isSafeInteger(seed.total) && seed.total >= seed.items.length) {
+      cutoff = seed.cutoff || cutoff; feed.accept(seed.items, seed.total, 24); initial = false;
+      // O HTML do build já contém estes cartões. Acrescentamos publicidade sem removê-los.
+      regularCards = seed.items.length;
+      status.classList.add("status-message"); updateList(); window.TNNAds?.refresh(); observeEnd();
+    } else { grid.replaceChildren(); loadList(); }
+  }
 })();
 

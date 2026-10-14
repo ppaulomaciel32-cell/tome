@@ -58,7 +58,10 @@ function environment(saved = null, blocked = false) {
       setItem: (key, value) => { if (blocked) throw Error("blocked"); storage[key] = value; } } });
   return { context, window, document, slots, storage, ids, meta, body, head };
 }
-function run(env, file) { vm.runInContext(read(file), env.context, { filename: file }); }
+function run(env, file) {
+  if (file === "app.js") vm.runInContext(read("assets/js/feed-model.js"), env.context);
+  vm.runInContext(read(file), env.context, { filename: file });
+}
 function choose(env, label) {
   const button = all(env.body).find(node => node.tagName === "BUTTON" && node.textContent === label);
   assert.ok(button, "Consent choice exists"); button.events.click();
@@ -95,7 +98,7 @@ test("server search reaches a published story outside the first 60 of 95 fixture
   assert.equal(all(env.ids["news-grid"]).some(n=>n.textContent==="Pescadores do Pecem"),true);
   assert.equal(env.ids["result-count"].textContent,"1 de 1 matéria");
 });
-test("pagination uses exact Content-Range totals and requests 24 rows per page", async () => {
+test("pagination uses exact totals, initial 24 and following batches of 12", async () => {
   const env=listEnvironment(),calls=[];
   const fixtures=Array.from({length:52},(_,i)=>({titulo:"Noticia "+i,slug:"materia-"+i,resumo:"Resumo",publicado_em:null}));
   env.context.fetch=async (url,options)=>{
@@ -106,11 +109,15 @@ test("pagination uses exact Content-Range totals and requests 24 rows per page",
   run(env,"app.js");await flush();
   assert.equal(env.ids["result-count"].textContent,"24 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,false);
   await env.ids["load-more"].events.click();
-  assert.equal(env.ids["result-count"].textContent,"48 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,false);
+  assert.equal(env.ids["result-count"].textContent,"36 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,false);
+  await env.ids["load-more"].events.click();
+  assert.equal(env.ids["result-count"].textContent,"48 de 52 matérias");
   await env.ids["load-more"].events.click();
   assert.equal(env.ids["result-count"].textContent,"52 de 52 matérias"); assert.equal(env.ids["load-more"].hidden,true);
-  assert.deepEqual(calls.map(c=>c.query.get("offset")),["0","24","48"]);
-  assert.ok(calls.every(c=>c.query.get("limit")==="24" && c.options.headers.Prefer==="count=exact"));
+  const pages=calls.filter(c=>c.query.has("offset"));
+  assert.deepEqual(pages.map(c=>c.query.get("offset")),["0","24","36","48"]);
+  assert.deepEqual(pages.map(c=>c.query.get("limit")),["24","12","12","12"]);
+  assert.ok(pages.every(c=>c.options.headers.Prefer==="count=exact"));
 });
 test("an unavailable exact count shows an error instead of inventing the total", async () => {
   for(const range of [null,"0-0/*","*/NaN"]){
@@ -182,9 +189,9 @@ test("seven HTML pages have metadata, one h1 and complete shared legal links", (
       assert.match(html, new RegExp('property="og:' + key + '"'), file);
     for (const link of ["politica-de-privacidade", "termos-de-uso", "sobre", "contato", "politica-de-cookies"])
       assert.match(html.slice(html.indexOf("<footer")), new RegExp(link + "\\.html"), file);
-    assert.equal((html.match(/<ins class="adsbygoogle"/g) || []).length, file === 'index.html' ? 3 : 2);
-    assert.equal((html.match(/<aside hidden class="ad-space /g) || []).length, file === 'index.html' ? 3 : 2);
-    assert.equal((html.match(/data-ad-client="ca-pub-2000164835494228"/g) || []).length, file === 'index.html' ? 3 : 2);
+    assert.equal((html.match(/<ins class="adsbygoogle"/g) || []).length, file === 'index.html' ? 0 : 2);
+    assert.equal((html.match(/<aside hidden class="ad-space /g) || []).length, file === 'index.html' ? 0 : 2);
+    assert.equal((html.match(/data-ad-client="ca-pub-2000164835494228"/g) || []).length, file === 'index.html' ? 0 : 2);
     assert.doesNotMatch(html, /<script[^>]+src="https:\/\/[^"]*google/);
     const title = html.match(/<title>(.*?)<\/title>/)[1];
     const description = html.match(/name="description" content="([^"]+)"/)[1];

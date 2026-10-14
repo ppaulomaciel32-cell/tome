@@ -38,7 +38,17 @@ export function articleHTML(template,item,config) {
     {'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:[{'@type':'ListItem',position:1,name:'Início',item:config.siteUrl+'/'},{'@type':'ListItem',position:2,name:label,item:absolute('/localidade/'+(item.localidade in LOCALS?item.localidade:'regiao')+'/',config.siteUrl)},{'@type':'ListItem',position:3,name:item.title,item:url}]}];
   return page.replace('</head>',`<meta name="tnn-agent-revision" content="${Number(item.agent_revision)||0}">\n<script type="application/ld+json">${json(schema)}</script>\n</head>`);
 }
-function card(item,config){const photo=safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl));return `<article class="news-card"><a class="card-link" href="/noticia/${esc(item.slug)}/"><img class="card-image" src="${esc(photo)}"${responsive(photo,'(max-width: 700px) 100vw, 400px')} alt="${esc(item.title)}" width="800" height="450" loading="lazy"><div class="card-body"><time class="card-meta" datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time><h3 class="card-title">${esc(item.title)}</h3><p class="card-summary">${esc(item.summary)}</p></div></a></article>`;}
+function card(item,config){const photo=safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl));return `<article class="news-card"><a class="card-link" href="/noticia/${esc(item.slug)}/"><img class="card-image" src="${esc(photo)}"${responsive(photo,'(max-width: 639px) calc(100vw - 30px), (max-width: 959px) 46vw, 360px')} alt="${esc(item.title)}" width="800" height="450" loading="lazy" decoding="async"><div class="card-body"><time class="card-meta" datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time><h3 class="card-title">${esc(item.title)}</h3><p class="card-summary">${esc(item.summary)}</p></div></a></article>`;}
+function feedAdHTML(config) {
+  return `<aside class="feed-ad" aria-label="Publicidade"><span class="ad-label">Publicidade</span><div class="house-ad"><span class="house-ad-brand">TOME NOTA · COMUNIDADE</span><h3>Sua marca, perto de quem vive aqui.</h3><a class="house-ad-link" href="/contato.html">Anuncie no Tome Nota</a></div><ins class="adsbygoogle" data-ad-position="home" data-ad-client="${esc(config.adClient)}" data-ad-slot="${esc(config.adSlots.home||'0000000000')}" data-ad-format="horizontal" data-full-width-responsive="true" style="display:block" hidden></ins></aside>`;
+}
+function listingHTML(items,config) {
+  return items.slice(0,24).map((item,index)=>card(item,config)+((index+1>=6&&(index+1-6)%12===0)?feedAdHTML(config):'')).join('');
+}
+function seedHTML(items) {
+  const seed={items:items.slice(0,24).map(p=>({id:p.id,slug:p.slug,titulo:p.title,resumo:p.summary,capa:p.cover_url,publicado_em:p.published_at})),total:items.length,cutoff:new Date().toISOString()};
+  return `<script id="news-seed" type="application/json">${json(seed)}</script>`;
+}
 export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
   const context={window:{}};
   vm.runInNewContext(await fs.readFile(path.join(ROOT,'public-site/assets/js/config.js'),'utf8'),context,{timeout:1000});
@@ -86,15 +96,20 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
     const file=path.join(out,name);let html=await fs.readFile(file,'utf8');
     html=html.replaceAll(context.window.TNN_CONFIG.siteUrl,config.siteUrl).replaceAll(context.window.TNN_CONFIG.adClient,config.adClient);
     html=html.replace('</header>','</header>'+nav()).replace('</head>','<link rel="stylesheet" href="/assets/localidades.css">\n</head>');
-    if(name==='index.html')html=html.replace('<div id="news-grid" class="news-grid"></div>','<div id="news-grid" class="news-grid">'+items.slice(0,24).map(i=>card(i,config)).join('')+'</div>');
+    if(name==='index.html') {
+      html=html.replace('<div id="news-grid" class="news-grid"></div>','<div id="news-grid" class="news-grid">'+listingHTML(items,config)+'</div>'+seedHTML(items));
+      html=html.replace('<span id="result-count" class="result-count" aria-live="polite"></span>',`<span id="result-count" class="result-count" aria-live="polite">${Math.min(24,items.length)} de ${items.length} ${items.length===1?'matéria':'matérias'}</span>`);
+    }
     await fs.writeFile(file,html);
     if(name!=='noticia.html')sitemap.push({url:absolute(name==='index.html'?'/':'/'+name,config.siteUrl)});
   }
   for(const item of items){const directory=path.join(out,'noticia',item.slug);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'index.html'),articleHTML(template,item,config));sitemap.push({url:absolute('/noticia/'+item.slug+'/',config.siteUrl),lastmod:item.updated_at});}
   for(const [slug,label] of Object.entries(LOCALS)){
     const news=items.filter(i=>i.localidade===slug);let html=head(template,{title:'Notícias de '+label+' | Tome Nota News',description:'Acompanhe as notícias de '+label+' no Tome Nota News.',url:absolute('/localidade/'+slug+'/',config.siteUrl),image:absolute('/assets/images/og-tome-nota.png',config.siteUrl)});
+    // Listas usam apenas as inserções espaçadas; topo/fim continuam nas matérias.
+    html=html.replace(/<aside hidden class="ad-space wrap"[\s\S]*?<\/aside>/g,'');
     html=html.replace('<html lang="pt-BR">',`<html lang="pt-BR" data-localidade="${slug}">`);
-    html=html.replace(/<article id="article-view"[\s\S]*?<\/article>/,`<section class="wrap news-section"><h1>Notícias de ${esc(label)}</h1><div class="filters"><label class="search-box"><span class="sr-only">Buscar nesta localidade</span><input id="search" maxlength="100" type="search" placeholder="Buscar nesta localidade..."></label></div><p id="result-count" aria-live="polite">${Math.min(24,news.length)} de ${news.length} matérias</p><div id="status-message" role="status"></div><div id="news-grid" class="news-grid">${news.slice(0,24).map(i=>card(i,config)).join('')}</div><button id="load-more" class="primary-button" hidden>Carregar mais notícias</button></section>`);
+    html=html.replace(/<article id="article-view"[\s\S]*?<\/article>/,`<section class="wrap news-section locality-section" id="ultimas" aria-labelledby="locality-title"><p class="eyebrow">Perto de você</p><div class="section-heading"><h1 id="locality-title">Notícias de ${esc(label)}</h1><p id="result-count" class="result-count" aria-live="polite">${Math.min(24,news.length)} de ${news.length} matérias</p></div><div class="filters"><label class="search-box"><span class="sr-only">Buscar nesta localidade</span><input id="search" maxlength="100" type="search" placeholder="Buscar nesta localidade..." autocomplete="off"></label></div><div id="news-grid" class="news-grid">${listingHTML(news,config)}</div>${seedHTML(news)}<div class="feed-end"><div id="status-message" class="status-message" role="status" aria-live="polite"></div><button id="load-more" class="primary-button" type="button" hidden>Carregar mais notícias</button></div><noscript><p>Ative JavaScript para buscar e carregar mais notícias desta localidade.</p></noscript></section>`);
     const directory=path.join(out,'localidade',slug);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'index.html'),html);
     sitemap.push({url:absolute('/localidade/'+slug+'/',config.siteUrl),lastmod:news[0]?.updated_at});
   }

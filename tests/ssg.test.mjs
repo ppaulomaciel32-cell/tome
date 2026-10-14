@@ -4,6 +4,25 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {build} from '../scripts/build-public-site.mjs';
+test('SSG: home e cidade entregam até 24 cartões, estado seguro e publicidade no mesmo lugar antes do JS',async()=>{
+ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'tnn-feed-ssg-'));
+ const base={title:'Notícia segura </script>',summary:'Resumo local.',body:'Texto da notícia.',status:'published',localidade:'pecem',published_at:'2026-10-01T12:00:00Z',updated_at:'2026-10-01T12:00:00Z'};
+ try {
+   for(const count of [0,1,100]) {
+     const fixture=path.join(temp,'input.json');await fs.writeFile(fixture,JSON.stringify(Array.from({length:count},(_,i)=>({...base,id:String(i),slug:'noticia-'+i}))));
+     const out=path.join(temp,'out');await build({fixture,out});
+     for(const page of ['index.html','localidade/pecem/index.html']) {
+       const html=await fs.readFile(path.join(out,page),'utf8');
+       assert.equal((html.match(/<article class="news-card">/g)||[]).length,Math.min(24,count));
+       const seed=JSON.parse(html.match(/<script id="news-seed" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+       assert.equal(seed.items.length,Math.min(24,count));assert.equal(seed.total,count);assert.equal(seed.items[0]?.titulo,count?base.title:undefined);
+       assert.equal((html.match(/<aside class="feed-ad"/g)||[]).length,count>=24?2:0);
+       assert.match(html,/feed-model.js/);assert.match(html,/id="load-more"/);assert.doesNotMatch(html,/<aside hidden class="ad-space wrap"/);
+       assert.equal((html.match(/<h1/g)||[]).length,1);
+     }
+   }
+ }finally{await fs.rm(temp,{recursive:true,force:true});}
+});
 test('SSG publishes only visible stories, escapes data, builds localities and preserves legacy pages',async()=>{
  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'tnn-ssg-'));
  const previousSite=process.env.SITE_URL;

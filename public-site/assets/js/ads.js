@@ -11,7 +11,14 @@
       const configured=window.TNN_CONFIG.adSlots?.[slot.dataset.adPosition];
       if(configured!==undefined)slot.dataset.adSlot=configured || '0000000000';
       const hidden = !isConfigured(slot);
-      slot.hidden = hidden;
+      const feedSpace = slot.closest(".feed-ad");
+      const feedReady = !hidden && window.TNNConsent?.get() === "all";
+      slot.hidden = feedSpace ? !feedReady : hidden;
+      if (feedSpace) {
+        // Duas peças na mesma altura reservada; a troca não movimenta os cartões.
+        const house = feedSpace.querySelector(".house-ad");
+        if (house) house.hidden = feedReady;
+      }
       // Hide the label and reserved space too, including dynamically rendered articles.
       const space = slot.closest(".ad-space");
       if (space) space.hidden = hidden;
@@ -20,7 +27,7 @@
   function queueSlots() {
     if (window.TNNConsent?.get() !== "all") return;
     document.querySelectorAll("ins.adsbygoogle").forEach(slot => {
-      if (!isConfigured(slot) ||
+      if (slot.hidden || !isConfigured(slot) ||
           slot.dataset.tnnQueued || slot.getAttribute("data-adsbygoogle-status")) return;
       slot.dataset.tnnQueued = "true";
       try { (window.adsbygoogle = window.adsbygoogle || []).push({}); }
@@ -31,6 +38,9 @@
     const client = window.TNN_CONFIG.adClient;
     prepareSlots(client);
     if (window.TNNConsent?.get() !== "all" || !/^ca-pub-\d{16}$/.test(client)) return;
+    // Na lista, só solicitamos anúncios quando há um espaço manual válido.
+    // Sem ADSENSE_SLOT_HOME, o anúncio da casa permanece no lugar reservado.
+    if(document.getElementById("news-grid") && ![...document.querySelectorAll('ins.adsbygoogle')].some(isConfigured))return;
     if(window.TNN_CONFIG.autoAds===false && ![...document.querySelectorAll('ins.adsbygoogle')].some(isConfigured))return;
     if (document.getElementById("tnn-adsense")) { queueSlots(); return; }
     if (loading) return;
