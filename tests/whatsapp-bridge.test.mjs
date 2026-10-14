@@ -337,3 +337,37 @@ test('prévia informa a capa e só aceita endereço de imagem do próprio servid
   await f.c.preview({...draftPreview(),cover:'photo',coverUrl:url});assert.match(f.sends.at(-1).msg.text,/Capa: foto enviada por você/);assert.equal(f.sends.at(-1).msg.text.includes(url),true);
   await f.c.preview({...draftPreview(),cover:'art'});assert.match(f.sends.at(-1).msg.text,/Capa: arte do jornal/);
 });
+
+test('correção: CORRIGIR e MANCHETE viram pedido de edição; "MANCHETE: texto" continua sendo pauta',()=>{
+  assert.deepEqual(parseManual('CORRIGIR 12: tire o último parágrafo'),{kind:'edit',mode:'fix',text:'tire o último parágrafo',number:12,revision:1});
+  assert.deepEqual(parseManual('manchete nº 3 - Pecém ganha nova iluminação'),{kind:'edit',mode:'title',text:'Pecém ganha nova iluminação',number:3,revision:1});
+  assert.deepEqual(parseManual('corrigir: deixe o texto mais curto'),{kind:'edit',mode:'fix',text:'deixe o texto mais curto',latest:true,revision:1});
+  assert.deepEqual(parseManual('troca o título para: Pecém ganha nova iluminação'),{kind:'edit',mode:'title',text:'Pecém ganha nova iluminação',latest:true,revision:1});
+  assert.equal(parseManual('MANCHETE: Prefeitura anuncia obra na estrada do Pecém').kind,'pauta');
+  assert.equal(parseManual('CORRIGIR'),null);assert.equal(parseManual('EDITAR #123'),null);
+});
+test('correção: assina só a retirada do rascunho antigo, renumera a prévia e devolve o antigo se falhar',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
+  const old=draftPreview();await f.c.preview(old);
+  await f.message({fromMe:true,text:'CORRIGIR 7: troque tudo'});assert.match(f.sends.at(-1).msg.text,/Não encontrei o rascunho nº 7/);
+  await f.message({fromMe:true,text:'CORRIGIR 1: deixe a manchete mais direta'});assert.match(f.sends.at(-1).msg.text,/Correção recebida para o rascunho nº 1/);
+  let {command}=await f.c.claimCommand({publisherReady:true,quota:{used:3,limit:60}});
+  assert.equal(command.kind,'edit');assert.equal(command.mode,'fix');assert.equal(command.draftId,old.id);assert.equal(command.text,'deixe a manchete mais direta');
+  const {createHmac}=await import('node:crypto');
+  assert.equal(command.signature,createHmac('sha256','c'.repeat(64)).update(JSON.stringify({action:'reject',draft_id:old.id,revision:1,receipt:command.receipt,editor_hash:command.editorHash})).digest('hex'));
+  // Enquanto corrige, "pode publicar" não aprova o rascunho antigo por engano.
+  await f.message({fromMe:true,text:'pode publicar'});assert.match(f.sends.at(-1).msg.text,/Não há rascunho aguardando/);
+  await f.message({fromMe:true,text:'corrigir 1: outra coisa qualquer'});assert.match(f.sends.at(-1).msg.text,/já foi decidido ou corrigido/);
+  // Falhou: o antigo volta a valer.
+  await f.c.commandResult({id:command.id,lease:command.lease,code:'edit_failed',draftId:old.id});assert.match(f.sends.at(-1).msg.text,/rascunho anterior continua valendo/);
+  await f.message({fromMe:true,text:'manchete 1: Simulação com manchete nova'});
+  ({command}=await f.c.claimCommand({publisherReady:true}));assert.equal(command.mode,'title');
+  const fresh={...draftPreview(),titulo:'Simulação com manchete nova',replaces:old.id};
+  await assert.rejects(f.c.preview({...fresh,replaces:'não-é-id'}),e=>e.code==='invalid_preview');
+  await f.c.preview(fresh);assert.match(f.sends.at(-1).msg.text,/RASCUNHO Nº 2 \(corrige o nº 1\)/);
+  const before=f.sends.length;await f.c.commandResult({id:command.id,lease:command.lease,code:'draft_ready',draftId:fresh.id});assert.equal(f.sends.length,before);
+  await f.message({fromMe:true,text:'pode publicar'});
+  ({command}=await f.c.claimCommand({publisherReady:true}));assert.equal(command.kind,'approve');assert.equal(command.draftId,fresh.id);
+  await f.message({text:'STATUS'});const status=f.sends.at(-1).msg.text;
+  assert.match(status,/Publicadas hoje: 0/);assert.match(status,/Redações de hoje: 3 de 60/);assert.match(status,/CORRIGIR número/);
+});

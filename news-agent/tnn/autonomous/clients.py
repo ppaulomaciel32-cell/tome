@@ -13,6 +13,11 @@ class Drafts:
         return self.net.json(self.url+('?action='+action if payload is None else ''),payload,
             {'x-draft-token':self.token},timeout=15,max_bytes=1000000)
 
+    def fetch(self,id):
+        """Rascunho completo, para aplicar uma correção pedida pelo editor."""
+        if not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',id or ''): raise AgentError('Rascunho inválido.')
+        return self.net.json(self.url+'?action=draft&id='+id,None,{'x-draft-token':self.token},timeout=15,max_bytes=1000000)
+
 class Bridge:
     def __init__(self):
         self.token=required('WA_PIPELINE_TOKEN')

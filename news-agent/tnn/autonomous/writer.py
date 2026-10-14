@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from ..core import AgentError, normalize, parse_article
+from ..core import AgentError, normalize, parse_article, slugify
 from ..providers import Gemini
 
 def anchor(excerpt,source):
@@ -26,10 +26,16 @@ class Writer:
         if len(sources)!=1:return 'multiplas_fontes'
         return 'material_redacao' if sources[0].get('owner') is True else 'fonte_unica_oficial'
     def write(self,headline,sources):
+        return self.produce({'pauta':headline[:600]},sources)
+    def correct(self,old,instruction):
+        """Reescreve um rascunho a pedido do editor, com as mesmas fontes e as mesmas travas."""
+        previous={k:old[k] for k in ('titulo','resumo','texto','localidade')}
+        return self.produce({'pauta':old['titulo'][:600],'versao_anterior':previous,'correcao_solicitada':' '.join(str(instruction).split())[:1500]},old['fontes'])
+    def produce(self,request,sources):
         mode=self.mode(sources)
         # O modelo recebe só o necessário; marcações internas não entram no prompt.
         public=[{k:s[k] for k in ('id','name','title','url','content','published_date')} for s in sources]
-        raw=self.gemini.generate(Path(__file__).with_name('editorial.txt').read_text(),{'modo':mode,'pauta':headline[:600],'fontes':public},self.schema)
+        raw=self.gemini.generate(Path(__file__).with_name('editorial.txt').read_text(),{'modo':mode,**request,'fontes':public},self.schema)
         article=parse_article(raw,sources)
         # Fonte única rende texto mais curto: melhor curto do que preenchido com suposição.
         lower=300 if mode=='multiplas_fontes' else 150
@@ -49,3 +55,13 @@ class Writer:
         except (KeyError,TypeError,ValueError,StopIteration): raise AgentError('A redação não trouxe evidências verificáveis para todos os trechos.') from None
         article.pop('capa_hint',None)
         return {**article,'evidencias':evidence,'fontes':sources}
+    @staticmethod
+    def retitle(old,title):
+        """Manchete escrita pelo editor: sem IA, mas sem número que as fontes não tragam."""
+        title=' '.join(str(title).split()).strip(' "“”')
+        if not 3<=len(title)<=300: raise AgentError('A manchete precisa ter de 3 a 300 caracteres.')
+        evidence=' '.join(s['content']+' '+s['title'] for s in old['fontes'])
+        pattern=r'\d+(?:[.,:/-]\d+)*'
+        if set(re.findall(pattern,title))-set(re.findall(pattern,evidence)): raise AgentError('A manchete traz número ou data que não está nas fontes.')
+        return {'slug':slugify(title),'titulo':title,'resumo':old['resumo'],'texto':old['texto'],'localidade':old['localidade'],
+            'evidencias':old['evidencias'],'fontes':old['fontes']}

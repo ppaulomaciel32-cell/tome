@@ -78,7 +78,9 @@ class Manual:
         self.check_deploy()
         if self.now()-self.checked>60:
             self.ready=self.editorial.ready();self.checked=self.now()
-        answer=self.bridge.call('/commands/claim',{'publisherReady':self.ready})
+        try:quota={'used':self.state.used('gemini'),'limit':self.config.gemini_daily}
+        except Exception:quota=None
+        answer=self.bridge.call('/commands/claim',{'publisherReady':self.ready,**({'quota':quota} if quota else {})})
         job=answer.get('command')
         if not job:return False
         lock=self.state.lock()
@@ -92,11 +94,65 @@ class Manual:
         finally:
             if lock.owned():lock.release()
         return True
+    def edit(self,job,memo):
+        """Correção antes de aprovar: nasce um rascunho novo e o antigo é retirado da fila."""
+        if not self.config.gemini_free:return {'code':'awaiting_configuration'}
+        context=self.retry(lambda:self.drafts.call())
+        if context.get('capabilities',{}).get('manual') is not True:return {'code':'awaiting_configuration'}
+        if not memo.get('old'):
+            memo['old']=self.retry(lambda:self.drafts.fetch(job['draftId']));self.cache(job['id'],memo)
+        old=memo['old']
+        if not memo.get('started'):
+            begin=self.retry(lambda:self.drafts.call({'action':'manual_begin','id':job['id'],'receipt':job['receipt'],'max_pending':self.config.max_pending}))
+            if not begin.get('started'):return {'code':begin.get('reason','edit_failed') if begin.get('reason')=='queue_full' else 'edit_failed','draftId':job['draftId']}
+            memo['started']=True;self.cache(job['id'],memo)
+        if not memo.get('draft'):
+            if job.get('mode')=='title':new=self.writer.retitle(old,job['text'])
+            else:
+                # Mesma regra da pauta: resposta incerta não gasta cota duas vezes.
+                if memo.get('generation_started'):return {'code':'edit_failed','draftId':job['draftId']}
+                if not self.state.reserve('gemini',self.config.gemini_daily):return {'code':'quota_limit'}
+                memo['generation_started']=True;self.cache(job['id'],memo);self.report(job,'redacao')
+                new=self.writer.correct(old,job['text'])
+            new['id']=str(uuid.uuid4())
+            if old.get('capa_url'):
+                if old.get('capa_credito'):new['capa_url']=old['capa_url'];new['capa_credito']=old['capa_credito'];memo['cover']='photo'
+                else:
+                    # Arte do jornal traz a manchete: refazer quando a manchete muda.
+                    try:new['capa_url']=self.covers.art(new['titulo'],new['localidade']) if self.covers and self.covers.enabled else old['capa_url']
+                    except Exception:new['capa_url']=old['capa_url']
+                    memo['cover']='art'
+            memo['draft']=new
+            # Revisão da mesma pauta: registros próprios, sem esbarrar na deduplicação da original.
+            memo['seen']=[{'hash':digest('correcao:'+job['receipt']+':titulo'),'tipo':'titulo','titulo':new['titulo'][:500]}]+[
+                {'hash':digest('correcao:'+job['receipt']+':'+str(i)),'tipo':'url','titulo':s['title'][:500]} for i,s in enumerate(new['fontes'])]
+            self.cache(job['id'],memo)
+        if not memo.get('saved'):
+            self.report(job,'rascunho')
+            saved=self.retry(lambda:self.drafts.call({'action':'save','cycle_id':job['id'],'draft':memo['draft'],'seen':memo['seen'],'max_pending':self.config.max_pending}))
+            if not saved.get('saved'):return {'code':'queue_full' if saved.get('reason')=='queue_full' else 'edit_failed','draftId':job['draftId']}
+            memo['saved']=saved['id'];self.cache(job['id'],memo)
+        if not memo.get('retired'):
+            # A assinatura da ponte cobre exatamente a rejeição do rascunho antigo por esta mensagem.
+            try:self.editorial.decide({**job,'kind':'reject'})
+            except Exception:pass
+            memo['retired']=True;self.cache(job['id'],memo)
+        draft=memo['draft'];self.report(job,'previa');sources=draft['fontes']
+        self.bridge.call('/preview',{'id':memo['saved'],'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],'localidade':draft['localidade'],
+            'sources':[{'name':s['name'],'url':s['url']} for s in sources],'replaces':job['draftId'],
+            **({'single':'owner' if sources[0].get('owner') else 'official'} if len(sources)==1 else {}),
+            **({'cover':memo['cover'],'coverUrl':draft['capa_url']} if memo.get('cover') and draft.get('capa_url') else {})})
+        return {'code':'draft_ready','draftId':memo['saved']}
     def process(self,job):
         raw=self.state.client.get(self.prefix+job['id']);memo=json.loads(raw) if raw else {}
         if memo.get('result'):return memo['result']
         result=None
         try:
+            if job['kind']=='edit':
+                try:result=self.edit(job,memo)
+                except QuotaLimit:result={'code':'quota_limit'}
+                except Exception:result={'code':'edit_failed','draftId':job['draftId']}
+                return result
             if job['kind'] in ('approve','reject'):
                 if job['kind']=='approve' and not self.ready:return {'code':'awaiting_configuration'}
                 if not memo.get('publication'):
@@ -156,8 +212,8 @@ class Manual:
         finally:
             if result:
                 memo['result']=result;self.cache(job['id'],memo)
-                if job['kind']=='pauta' and memo.get('started'):
-                    code={'draft_ready':'ok','failed':'internal_error'}.get(result['code'],result['code'])
+                if job['kind'] in ('pauta','edit') and memo.get('started'):
+                    code={'draft_ready':'ok','failed':'internal_error','edit_failed':'write_failed','awaiting_configuration':'internal_error'}.get(result['code'],result['code'])
                     try:self.drafts.call({'action':'finish','id':job['id'],'status':'completed' if result['code']=='draft_ready' else 'skipped','stage':'previa' if result['code']=='draft_ready' else 'coleta','code':code,'duration_ms':0})
                     except Exception:pass
                     self.report(job,'fim','completed' if result['code']=='draft_ready' else 'skipped',code)

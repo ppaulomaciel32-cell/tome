@@ -10,7 +10,7 @@ from unittest.mock import Mock,patch
 import fakeredis
 from tnn.core import AgentError
 from tnn.autonomous.config import Config,Source
-from tnn.autonomous.collection import Collector,PublicFetch,parse_feed,canonical,similar,clean,digest
+from tnn.autonomous.collection import Collector,PublicFetch,parse_feed,canonical,similar,clean,digest,local_score
 from tnn.autonomous.store import State
 from tnn.autonomous.writer import Writer,anchor
 from tnn.autonomous.pipeline import Pipeline
@@ -181,6 +181,16 @@ class AutonomousTests(unittest.TestCase):
         fake=Mock();valid=article();valid['evidencias'][0]['trecho']=TITLE;valid['evidencias'][1]['trecho']=joined
         fake.generate.return_value=json.dumps(valid);draft=Writer(fake).write(TITLE,ROWS)
         self.assertEqual(draft['evidencias'][1]['trecho'],source['content'][:96].strip())
+    def test_local_mention_in_body_counts_and_correction_reuses_every_guard(self):
+        self.assertEqual(local_score('Governo entrega nova adutora'),0)
+        self.assertGreater(local_score('Governo entrega nova adutora','A obra atende moradores do Pecém e da Taíba.'),local_score('Governo do Ceará entrega adutora'))
+        self.assertGreater(local_score('Pecém recebe nova adutora'),local_score('Governo entrega nova adutora','A obra atende o Pecém.'))
+        fake=Mock();valid=article();fake.generate.return_value=json.dumps(valid);writer=Writer(fake)
+        old={**{k:valid[k] for k in ('titulo','resumo','texto','localidade')},'fontes':ROWS}
+        writer.correct(old,'deixe a manchete   mais direta');sent=fake.generate.call_args.args[1]
+        self.assertEqual(sent['correcao_solicitada'],'deixe a manchete mais direta');self.assertEqual(sent['versao_anterior']['texto'],valid['texto'])
+        fake.generate.return_value=json.dumps({**valid,'titulo':'Ponte recebe 98457 pessoas'})
+        with self.assertRaises(AgentError):writer.correct(old,'invente um número')
     def test_config_refuses_auto_publish_and_unreviewed_model(self):
         with patch.dict(os.environ,{'AGENTE_REQUER_APROVACAO':'false'}):
             with self.assertRaises(AgentError):Config.env()

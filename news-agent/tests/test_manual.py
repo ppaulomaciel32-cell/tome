@@ -126,6 +126,42 @@ class ManualTests(unittest.TestCase):
         self.assertEqual(self.agent.process({**self.job,'photo':True})['code'],'draft_ready')
         self.assertNotIn('capa_url',self.saved[0]['draft']);self.bridge.media.assert_not_called()
         self.assertNotIn('cover',next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview'))
+    def stored(self,**extra):
+        return {'id':str(uuid.uuid4()),**{k:v for k,v in article().items() if k!='capa_hint'},'fontes':copy.deepcopy(ROWS),**extra}
+    def edit_job(self,old,**extra):
+        return {**self.job,'kind':'edit','mode':'fix','text':'deixe a manchete mais direta','draftId':old['id'],'revision':1,'signature':'c'*64,**extra}
+    def test_correction_creates_new_draft_retires_old_one_and_never_publishes(self):
+        old=self.stored();self.drafts.fetch.return_value=copy.deepcopy(old)
+        self.writer.correct.return_value={**article(),'titulo':'Ponte da Taíba passa por nova vistoria','fontes':copy.deepcopy(ROWS)}
+        job=self.edit_job(old);result=self.agent.process(job)
+        self.assertEqual(result['code'],'draft_ready');self.assertNotEqual(result['draftId'],old['id'])
+        self.writer.correct.assert_called_once();self.assertEqual(self.writer.correct.call_args.args[1],job['text']);self.writer.write.assert_not_called()
+        saved=self.saved[0];self.assertEqual(saved['draft']['titulo'],'Ponte da Taíba passa por nova vistoria')
+        # Registros de deduplicação próprios: a correção não esbarra na pauta original.
+        self.assertEqual(len(saved['seen']),3);self.assertEqual(len({s['hash'] for s in saved['seen']}),3)
+        retired=self.editorial.decide.call_args.args[0];self.assertEqual(retired['kind'],'reject');self.assertEqual(retired['draftId'],old['id']);self.assertEqual(retired['signature'],'c'*64)
+        preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview');self.assertEqual(preview['replaces'],old['id']);self.assertEqual(preview['id'],result['draftId'])
+        # Repetição do mesmo pedido não gera nem salva de novo.
+        self.assertEqual(self.agent.process(job),result);self.assertEqual(self.writer.correct.call_count,1);self.assertEqual(len(self.saved),1)
+    def test_new_headline_needs_no_ai_and_refuses_numbers_absent_from_sources(self):
+        old=self.stored(capa_url='https://bot.tomezap.com.br/imagens/'+'a'*32+'-1600.jpg',capa_credito='Maria Silva');self.drafts.fetch.return_value=copy.deepcopy(old)
+        self.agent.writer=Mock(wraps=None);self.agent.writer.retitle=__import__('tnn.autonomous.writer',fromlist=['Writer']).Writer.retitle
+        result=self.agent.process(self.edit_job(old,mode='title',text='  Vistoria na ponte da Taíba muda rotina de moradores  '))
+        self.assertEqual(result['code'],'draft_ready');draft=self.saved[0]['draft']
+        self.assertEqual(draft['titulo'],'Vistoria na ponte da Taíba muda rotina de moradores');self.assertEqual(draft['slug'],'vistoria-na-ponte-da-taiba-muda-rotina-de-moradores')
+        self.assertEqual(draft['texto'],old['texto']);self.assertEqual(draft['capa_credito'],'Maria Silva');self.assertEqual(draft['capa_url'],old['capa_url'])
+        self.setUp();self.drafts.fetch.return_value=copy.deepcopy(old);self.agent.writer.retitle=__import__('tnn.autonomous.writer',fromlist=['Writer']).Writer.retitle
+        failed=self.agent.process(self.edit_job(old,mode='title',text='Ponte recebe 98457 pessoas'))
+        self.assertEqual(failed,{'code':'edit_failed','draftId':old['id']});self.assertEqual(len(self.saved),0);self.editorial.decide.assert_not_called()
+    def test_failed_correction_keeps_old_draft_and_does_not_spend_quota_twice(self):
+        old=self.stored();self.drafts.fetch.return_value=copy.deepcopy(old);self.writer.correct.side_effect=AgentError('fixture')
+        job=self.edit_job(old)
+        self.assertEqual(self.agent.process(job)['code'],'edit_failed');self.assertEqual(self.agent.process(job)['code'],'edit_failed')
+        self.assertEqual(self.writer.correct.call_count,1);self.editorial.decide.assert_not_called();self.assertEqual(len(self.saved),0)
+    def test_worker_reports_daily_usage_with_the_claim(self):
+        self.state.reserve('gemini',60);self.bridge.call.return_value={'command':None}
+        self.agent.one();claim=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/commands/claim')
+        self.assertEqual(claim['quota'],{'used':1,'limit':self.config.gemini_daily})
     def test_approval_forwards_signed_exact_revision_without_regenerating(self):
         self.agent.ready=True;job={**self.job,'kind':'approve','draftId':str(uuid.uuid4()),'revision':1,'signature':'c'*64}
         self.editorial.decide.return_value={'url':'https://tomezap.com.br/noticia/pauta-teste/','revision':1,'deploy_requested':True}

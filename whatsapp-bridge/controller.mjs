@@ -120,22 +120,29 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
             // "APROVAR 12" ou "pode publicar": o ID real vem do registro da ponte, nunca do texto.
             const open=previews.open();
             const target=parsed.number?previews.byNumber(parsed.number):(open.length===1?open[0]:null);
+            const verb={approve:'APROVAR ',reject:'REJEITAR ',edit:'CORRIGIR '}[parsed.kind];
             if(!target){
               if(vault.claim(receipt,now()))await sendGroup(parsed.number?'Não encontrei o rascunho nº '+parsed.number+'. Confira o número na prévia.'
-                :open.length?'Há '+open.length+' rascunhos aguardando. Diga qual, por exemplo: '+(parsed.kind==='approve'?'APROVAR ':'REJEITAR ')+open.at(-1).n+'\n'+open.slice(-8).map(p=>'Nº '+p.n+' — '+p.titulo).join('\n')
+                :open.length?'Há '+open.length+' rascunhos aguardando. Diga qual, por exemplo: '+verb+open.at(-1).n+(parsed.kind==='edit'?': o que mudar':'')+'\n'+open.slice(-8).map(p=>'Nº '+p.n+' — '+p.titulo).join('\n')
                 :'Não há rascunho aguardando decisão.');
+              continue;
+            }
+            if(parsed.kind==='edit' && target.decided){
+              if(vault.claim(receipt,now()))await sendGroup('O rascunho nº '+target.n+' já foi decidido ou corrigido. A correção vale para rascunho que ainda aguarda aprovação.');
               continue;
             }
             parsed.draftId=target.id;
           }
           delete parsed.number;delete parsed.latest;
+          if(parsed.kind==='edit' && vault.get('preview:'+parsed.draftId+':1')!=='sent')continue;
           if(parsed.kind==='approve' && vault.get('preview:'+parsed.draftId+':1')!=='sent'){
             if(vault.claim(receipt,now()))await sendGroup('Não há prévia confirmada para esse ID. Confira o rascunho e aguarde a prévia antes de aprovar.');continue;
           }
           const editorHash=messageDigest(identity);
           if(parsed.kind!=='pauta'){
             if(!config.editorialSigningKey){if(vault.claim(receipt,now()))await sendGroup('A aprovação ainda precisa da assinatura editorial configurada na ponte e no Supabase. Nada foi publicado.');continue;}
-            parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
+            // A correção assina só a retirada do rascunho antigo; o novo passa por nova aprovação.
+            parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind==='edit'?'reject':parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
           }
           let photo='none';
           if(parsed.kind==='pauta' && image){
@@ -154,6 +161,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
           const result=manual.add(parsed,receipt,editorHash);
           if(result.job && parsed.kind!=='pauta')previews.decide(parsed.draftId);
           // Só a pauta recebe confirmação imediata; a decisão responde quando terminar.
+          if(result.job && parsed.kind==='edit')await sendGroup('Correção recebida para o '+label(parsed.draftId).toLowerCase()+'. Vou refazer e mando a nova prévia.');
           if(result.job && parsed.kind==='pauta')await sendGroup((photo==='saved'?'Pauta e foto recebidas. A foto será a capa.'
             :photo==='failed'?'Pauta recebida, mas não consegui usar a foto (envie JPG ou PNG de até 25 MB). A capa será a arte do jornal.'
             :'Pauta recebida.')+' Vou preparar o rascunho e mando a prévia aqui. Nada é publicado sem você aprovar.');
@@ -164,7 +172,12 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(!vault.claim(receipt,now()))continue;
       try {
         if(parsed && parsed.kind==='pauta'){await sendGroup('Recebi seu texto, mas a produção manual ainda não foi ativada na VPS. A conexão WhatsApp está funcionando; confira o trabalhador e os tokens.');continue;}
-        if(command==='STATUS' && config.manualEnabled){const q=manual.status();await sendGroup('WhatsApp conectado. Pautas na fila: '+q.queued+'. Em processamento: '+q.processing+'.\nÚltimo resultado: '+(q.lastCode || 'aguardando trabalhador')+'.\nPublicação exige APROVAR #ID após a prévia.');continue;}
+        if(command==='STATUS' && config.manualEnabled){
+          const q=manual.status(),open=previews.open(),quota=vault.get('manual:quota',null);
+          await sendGroup('WhatsApp conectado.\nPublicadas hoje: '+q.publishedToday+'\nAguardando sua decisão: '+open.length+(open.length?'\n'+open.slice(-8).map(p=>'Nº '+p.n+' — '+p.titulo).join('\n'):'')
+            +'\nPautas na fila: '+q.queued+' · em preparo: '+q.processing
+            +(quota?'\nRedações de hoje: '+quota.used+' de '+quota.limit:'')
+            +'\nPara publicar: APROVAR e o número. Para ajustar: CORRIGIR número: o que mudar.');continue;}
         const cycle=cycleState();
         const labels={running:'Em apuração',completed:'Último ciclo concluído',skipped:'Último ciclo sem nova matéria',failed:'Último ciclo precisa de atenção',queue_full:'Fila cheia; revise os rascunhos',awaiting_configuration:'Aguardando configuração'};
         await sendGroup(command==='STATUS' ? (cycle.state==='not_implemented' ? 'WhatsApp conectado. Grupo autorizado. A busca e a redação ainda não estão ativadas. Publicação bloqueada até a implementação e aprovação humana.' :
@@ -213,6 +226,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(!config.manualEnabled)return {enabled:false,command:null};
       online();const group=selection();if(!group)fail(409,'no_group','Confirme o grupo.');await members(await metadata(group.id,true));
       vault.put('manual:workerAt',now());vault.put('manual:publisherReady',body?.publisherReady===true && Boolean(config.editorialSigningKey));
+      const q=body?.quota;if(q && Number.isInteger(q.used) && Number.isInteger(q.limit) && q.used>=0 && q.limit>0 && q.limit<=1000)vault.put('manual:quota',{used:Math.min(q.used,1000),limit:q.limit,at:now()});
       return {enabled:true,command:manual.claim()};
     }),
     // Entrega a foto à redação pela rede interna; apaga quando a redação confirma.
@@ -224,12 +238,14 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       await sendGroup('No ar: '+body.url+'\nCompartilhar: '+body.url);return {ok:true};
     }),
     commandResult:body=>run(async()=>{
-      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Não consegui fonte suficiente para esta pauta. Mande o link da fonte oficial (prefeitura, governo, MP, empresa pública) ou cole aqui o texto completo da nota, que eu preparo o rascunho.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
+      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Não consegui fonte suficiente para esta pauta. Mande o link da fonte oficial (prefeitura, governo, MP, empresa pública) ou cole aqui o texto completo da nota, que eu preparo o rascunho.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',edit_failed:'Não consegui aplicar a correção. Pode ser um pedido com fato ou número que não está na fonte. O rascunho anterior continua valendo.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
       if(!commandUUID.test(body?.id || '') || !commandUUID.test(body?.lease || '') || !Object.hasOwn(messages,body.code))fail(400,'invalid_result','Resultado inválido.');
       if(body.draftId && !commandUUID.test(body.draftId))fail(400,'invalid_result','ID inválido.');
       if(body.url && !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body.url))fail(400,'invalid_result','URL inválida.');
       if(body.code==='live' && !body.url)fail(400,'invalid_result','URL obrigatória.');
       const result=manual.finish(body);if(result.duplicate)return {ok:true,duplicate:true};
+      // Correção que falhou devolve o rascunho antigo à lista de aprovação.
+      if(['edit_failed','queue_full','quota_limit'].includes(body.code) && result.job?.kind==='edit')previews.reopen(result.job.draftId);
       // A prévia já avisa que o rascunho está pronto; não gastar outra mensagem.
       if(body.code==='draft_ready')return {ok:true};
       await sendGroup(messages[body.code]+(body.draftId?'\n'+label(body.draftId):'')+(body.url?'\n'+body.url:''));return {ok:true};
@@ -252,7 +268,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         || typeof body.resumo!=='string' || body.resumo.length<10 || body.resumo.length>500 || !Object.hasOwn(locals,body.localidade)
         || !Array.isArray(body.sources) || body.sources.length<1 || body.sources.length>5
         || (body.sources.length===1 ? !['official','owner'].includes(body.single) : body.single!==undefined)
-        || ![undefined,'photo','art'].includes(body.cover)
+        || ![undefined,'photo','art'].includes(body.cover) || (body.replaces!==undefined && !validId.test(body.replaces))
         || (body.coverUrl!==undefined && !/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/.test(body.coverUrl)))fail(400,'invalid_preview','Prévia inválida.');
       for(const source of body.sources){
         let u;try{u=new URL(source.url);}catch{fail(400,'invalid_preview','Fonte inválida.');}
@@ -268,7 +284,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const origin=body.single==='owner'?'Fonte: material enviado por você à redação'
         :body.single==='official'?'Fonte única (oficial): '+clean(body.sources[0].name)+'\n'+body.sources[0].url
         :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
-      await sendGroup('RASCUNHO Nº '+n+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
+      const replaced=body.replaces?previews.number(body.replaces):null;
+      await sendGroup('RASCUNHO Nº '+n+(replaced?' (corrige o nº '+replaced+')':'')+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
         +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
         +(body.cover?'\nCapa: '+(body.cover==='photo'?'foto enviada por você':'arte do jornal com a manchete')+(body.coverUrl?'\n'+body.coverUrl:''):'')
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id

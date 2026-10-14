@@ -45,7 +45,7 @@ class Config:
         try: data = json.loads(Path(path).read_text())
         except FileNotFoundError: data = []
         except (ValueError, OSError): raise AgentError('A lista de fontes não pôde ser lida.') from None
-        if not isinstance(data, list) or len(data) > 10: raise AgentError('Configure até dez fontes RSS aprovadas.')
+        if not isinstance(data, list) or len(data) > 30: raise AgentError('Configure até trinta fontes RSS aprovadas.')
         sources = []
         for row in data:
             if not isinstance(row, dict): raise AgentError('Fonte RSS inválida.')

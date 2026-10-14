@@ -133,12 +133,15 @@ def words(value):
 def similar(a,b,threshold=.65):
     left,right=words(a),words(b)
     return bool(left and right and len(left&right)/max(1,min(len(left),len(right)))>=threshold and len(left&right)>=3)
-def local_score(title):
-    t=unicodedata.normalize('NFKD',title).encode('ascii','ignore').decode().lower()
-    local=any(x in t for x in ('sao goncalo do amarante','pecem','taiba','paracuru'))
+LOCAL_TERMS=('sao goncalo do amarante','pecem','taiba','paracuru')
+def local_score(title,content=''):
+    fold=lambda v:unicodedata.normalize('NFKD',v or '').encode('ascii','ignore').decode().lower()
+    t=fold(title);local=any(x in t for x in LOCAL_TERMS)
+    # Nota de órgão estadual costuma citar o município só no corpo do texto.
+    inside=not local and any(x in fold(content) for x in LOCAL_TERMS)
     regional='ceara' in t or 'cearense' in t
     useful=any(x in t for x in ('agua','saude','escola','ponte','chuva','transito','vagas','edital','vacina'))
-    return (10 if local else 3 if regional else 0)+(2 if useful and (local or regional) else 0)
+    return (10 if local else 6 if inside else 3 if regional else 0)+(2 if useful and (local or inside or regional) else 0)
 
 def parse_feed(raw,source,now):
     try: root=ElementTree.fromstring(raw)
@@ -172,7 +175,7 @@ class Collector:
             try: result.extend(parse_feed(self.public.get(source.feed_url,source.domains),source,now))
             except AgentError: errors+=1
         if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
-        return sorted(result,key=lambda s:(local_score(s['title']),s['published_date']),reverse=True)
+        return sorted(result,key=lambda s:(local_score(s['title'],s['content']),s['published_date']),reverse=True)
     def manual(self,text,now):
         # Texto curto do WhatsApp é uma PAUTA, não prova de um acontecimento.
         try: rows=self.feeds(now)

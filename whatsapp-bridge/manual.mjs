@@ -11,6 +11,12 @@ export function parseManual(text){
   // Número curto da prévia: "APROVAR 12", "aprovar nº 12", "REJEITAR #12".
   const short=plain.match(/^(APROVAR|REJEITAR)\s+(?:n[ºo°.]?\s*)?#?(\d{1,6})[\s.!]*$/i);
   if(short)return {kind:short[1].toUpperCase()==='APROVAR'?'approve':'reject',number:Number(short[2]),revision:1};
+  // Correção antes de aprovar: "CORRIGIR 12: tire o último parágrafo", "MANCHETE 12: nova manchete".
+  const edit=plain.match(/^(CORRIGIR|CORRIGE|CORRIJA|EDITAR|EDITA|AJUSTAR|AJUSTA|MANCHETE|T[ÍI]TULO)\s+(?:n[ºo°.]?\s*)?#?(\d{1,6})\s*[:\-–—]?\s+([^]{5,1500})$/i)
+    || plain.match(/^(CORRIGIR|CORRIGE|CORRIJA|EDITAR|EDITA|AJUSTAR|AJUSTA)()\s*[:\-–—]\s*([^]{5,1500})$/i);
+  if(edit)return {kind:'edit',mode:/^(MANCHETE|T[ÍI]TULO)$/i.test(edit[1])?'title':'fix',text:edit[3].trim(),...(edit[2]?{number:Number(edit[2])}:{latest:true}),revision:1};
+  const retitle=plain.match(/^(?:troca|trocar|troque|muda|mudar|mude|altera|alterar|altere)\s+(?:o\s+t[íi]tulo|a\s+manchete)\s+(?:para|por)\s*:?\s*([^]{5,300})$/i);
+  if(retitle)return {kind:'edit',mode:'title',text:retitle[1].trim(),latest:true,revision:1};
   if(approveWords.test(plain))return {kind:'approve',latest:true,revision:1};
   if(rejectWords.test(plain))return {kind:'reject',latest:true,revision:1};
   if(/^(STATUS|APROVAR|REJEITAR|EDITAR|CORRIGIR|STORIES|REELS|PAUSAR|RETOMAR)(?:\s|:|$)/i.test(text))return null;
@@ -29,7 +35,8 @@ export function previewRegistry(vault,now){
     number:id=>list().find(p=>p.id===id)?.n ?? null,
     byNumber:n=>list().find(p=>p.n===n) || null,
     open:()=>list().filter(p=>!p.decided && p.at>now()-72*3600000),
-    decide(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){row.decided=true;vault.put('previews',rows);}}
+    decide(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){row.decided=true;vault.put('previews',rows);}},
+    reopen(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){delete row.decided;vault.put('previews',rows);}}
   };
 }
 export function manualQueue(vault,now,fail){
@@ -57,7 +64,9 @@ export function manualQueue(vault,now,fail){
       job.state='done';job.code=body.code;job.finished=now();job.draftId=body.draftId || job.draftId;
       vault.put('manual:queue',rows);return {job};
     },
-    status(){const rows=list();return {queued:rows.filter(r=>r.state==='queued').length,processing:rows.filter(r=>r.state==='processing').length,lastCode:rows.at(-1)?.code || null};}
+    status(){const rows=list(),day=new Date(now()-3*3600000).toISOString().slice(0,10);return {queued:rows.filter(r=>r.state==='queued').length,processing:rows.filter(r=>r.state==='processing').length,lastCode:rows.at(-1)?.code || null,
+      // Dia contado no horário de Fortaleza (UTC-3).
+      publishedToday:rows.filter(r=>r.kind==='approve' && ['live','publication_pending'].includes(r.code) && new Date((r.finished || 0)-3*3600000).toISOString().slice(0,10)===day).length};}
     ,publication(body){
       const rows=list(),job=rows.find(r=>r.id===body.id && r.kind==='approve' && r.draftId===body.draftId);
       if(!job || job.state!=='done' || !['publication_pending','live'].includes(job.code))fail(409,'approval_required','Publicação sem aprovação registrada na ponte.');

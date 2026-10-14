@@ -20,6 +20,9 @@ class State:
           redis.call('INCR',KEYS[1]); redis.call('EXPIRE',KEYS[1],172800)
           redis.call('INCR',KEYS[2]); redis.call('EXPIRE',KEYS[2],3456000)
           return 1''',2,*keys,daily,monthly if monthly is not None else 100000))
+    def used(self,provider):
+        d=datetime.fromtimestamp(self.now(),timezone.utc)
+        return int(self.client.get(self.prefix+provider+':day:'+d.strftime('%Y%m%d')) or 0)
     def lock(self): return self.client.lock(self.prefix+'lock',timeout=900,blocking=False)
     def failure(self,stage): return self.client.incr(self.prefix+'failures:'+stage)
     def reset(self,stage): self.client.delete(self.prefix+'failures:'+stage)
