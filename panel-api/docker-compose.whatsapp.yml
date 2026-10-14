@@ -14,6 +14,14 @@ services:
         target: /data/session
         bind:
           create_host_path: false
+      # Fotos das pautas, só até a redação buscar. Nunca exposto pelo nginx.
+      - type: bind
+        source: /opt/tome-news/imagens/entrada
+        target: /data/media
+        bind:
+          create_host_path: false
+    environment:
+      WA_MEDIA_DIR: /data/media
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     # Porta disponível apenas na rede Docker: sem ports, Redis ou acesso público.

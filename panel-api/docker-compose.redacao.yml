@@ -17,14 +17,24 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      # Capas públicas: a redação grava, o nginx do host serve em /imagens/.
+      - type: bind
+        source: /opt/tome-news/imagens/pub
+        target: /data/media/pub
+        bind:
+          create_host_path: false
+    environment:
+      MEDIA_DIR: /data/media/pub
+      MEDIA_PUBLIC_URL: https://bot.tomezap.com.br/imagens
     networks: [default, redacao_privada]
     depends_on:
       redacao-redis:
         condition: service_healthy
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 256m
-    cpus: 0.5
+    # Foto de celular em alta resolução ocupa bastante memória durante o redimensionamento.
+    mem_limit: 640m
+    cpus: 0.75
     healthcheck:
       test: ["CMD", "python", "-m", "tnn.autonomous.worker", "--healthcheck"]
       interval: 30s

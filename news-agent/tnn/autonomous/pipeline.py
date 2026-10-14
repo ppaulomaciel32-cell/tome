@@ -6,8 +6,8 @@ from .collection import digest,similar,local_score,accepted
 from .store import QuotaLimit
 
 class Pipeline:
-    def __init__(self,config,state,collector,writer,drafts,bridge,now=time.time,sleep=time.sleep):
-        self.config=config;self.state=state;self.collector=collector;self.writer=writer;self.drafts=drafts;self.bridge=bridge;self.now=now;self.sleep=sleep
+    def __init__(self,config,state,collector,writer,drafts,bridge,now=time.time,sleep=time.sleep,covers=None):
+        self.covers=covers;self.config=config;self.state=state;self.collector=collector;self.writer=writer;self.drafts=drafts;self.bridge=bridge;self.now=now;self.sleep=sleep
     def retry(self,fn,allow_expired=False):
         for attempt in range(3):
             if not allow_expired and self.now()>getattr(self,'deadline',float('inf')): raise AgentError('Tempo disponível do ciclo esgotado.')
@@ -61,6 +61,11 @@ class Pipeline:
                 if not self.state.reserve('gemini',c.gemini_daily): raise QuotaLimit('Cota local de redação atingida.')
                 return self.writer.write(candidate['title'],sources)
             draft=self.retry(write);draft['id']=str(uuid.uuid4());self.state.reset('redacao');stage='rascunho'
+            cover=None
+            if self.covers and self.covers.enabled:
+                # Pauta do ciclo automático não tem foto: capa é a arte do jornal.
+                try: draft['capa_url']=self.covers.art(draft['titulo'],draft['localidade']);cover='art'
+                except Exception: draft.pop('capa_url',None)
             self.report_stage(cycle,stage,len(context['drafts']))
             if not lock.owned() or self.now()-started>660: raise AgentError('Ciclo excedeu o tempo disponível.')
             result=self.retry(lambda:self.drafts.call({'action':'save','cycle_id':cycle,'draft':draft,'seen':seen,'max_pending':c.max_pending}))
@@ -69,7 +74,8 @@ class Pipeline:
             self.report_stage(cycle,stage,len(context['drafts'])+1)
             self.bridge.call('/preview',{'id':draft_id,'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],
                 'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources],
-                **({'single':'official'} if len(sources)==1 else {})})
+                **({'single':'official'} if len(sources)==1 else {}),
+                **({'cover':cover,'coverUrl':draft['capa_url']} if cover else {})})
             self.state.reset('previa');return {'status':'draft_created','id':draft_id}
         except QuotaLimit:
             status='skipped';code='quota_limit';return {'status':code}

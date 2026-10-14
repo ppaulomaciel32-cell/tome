@@ -1,4 +1,7 @@
 import copy
+import io
+import os
+import tempfile
 import dataclasses
 import json
 import time
@@ -12,6 +15,15 @@ from tnn.autonomous.config import Config
 from tnn.autonomous.store import State
 from tnn.autonomous.collection import Collector,accepted,owner_material,public_office,OWNER_URL
 from tests.test_autonomous import SOURCE,SOURCE_B,ROWS,article
+from PIL import Image
+from tnn.autonomous.media import Covers,BASE,PUBLIC
+
+def picture(size=(4000,3000),fmt='JPEG',exif=False):
+    out=io.BytesIO();image=Image.effect_noise(size,40).convert('RGB')
+    options={}
+    if exif:
+        data=Image.Exif();data[0x010F]='Fabricante de teste';data[0x8825]={1:'S',2:(3.0,43.0,0.0)};options['exif']=data
+    image.save(out,fmt,quality=85,**options);return out.getvalue()
 
 class ManualTests(unittest.TestCase):
     def setUp(self):
@@ -75,6 +87,45 @@ class ManualTests(unittest.TestCase):
         # Texto longo colado pelo editor vira material de base quando não há fonte na rede.
         pasted=collector.manual('Nota da associação de moradores: '+body,now)
         self.assertEqual(len(pasted),1);self.assertTrue(pasted[0]['owner'])
+    def test_photo_is_archived_up_to_4k_served_light_and_loses_exif(self):
+        with tempfile.TemporaryDirectory() as folder:
+            covers=Covers(folder,BASE);self.assertTrue(covers.enabled)
+            url=covers.photo(picture(exif=True));self.assertRegex(url,PUBLIC.pattern);name=url.rsplit('/',1)[1][:32]
+            with Image.open(os.path.join(folder,name+'-4k.jpg')) as big:
+                self.assertEqual(max(big.size),3840);self.assertEqual(len(big.getexif()),0)
+            with Image.open(os.path.join(folder,name+'-1600.jpg')) as wide:
+                self.assertEqual(wide.size,(1600,900));self.assertEqual(len(wide.getexif()),0)
+            with Image.open(os.path.join(folder,name+'-800.webp')) as small:self.assertEqual(small.size,(800,450))
+            self.assertLess(os.path.getsize(os.path.join(folder,name+'-800.webp')),400000)
+            self.assertEqual(os.stat(os.path.join(folder,name+'-1600.jpg')).st_mode&0o777,0o644)
+            for bad in (b'<html>'+b'x'*2000,picture((200,200)),b'curto',picture(fmt='GIF')):
+                with self.assertRaises(AgentError):covers.photo(bad)
+            self.assertEqual(sorted(n for n in os.listdir(folder) if n.startswith('.')),[])
+    def test_art_cover_is_deterministic_and_disabled_without_reviewed_public_address(self):
+        with tempfile.TemporaryDirectory() as folder:
+            covers=Covers(folder,BASE);long='Prefeitura de São Gonçalo do Amarante anuncia novo cronograma de pavimentação para os distritos do Pecém, Taíba e Croatá após reunião com moradores '*2
+            first=covers.art(long,'pecem');self.assertEqual(first,covers.art(long,'pecem'));self.assertNotEqual(first,covers.art(long,'taiba'))
+            with Image.open(os.path.join(folder,first.rsplit('/',1)[1])) as image:self.assertEqual(image.size,(1600,900))
+            self.assertFalse(Covers(folder,'https://evil.example/imagens').enabled);self.assertFalse(Covers('',BASE).enabled);self.assertFalse(Covers(folder+'/nao-existe',BASE).enabled)
+            with self.assertRaises(AgentError):Covers('',BASE).art('Título','pecem')
+    def test_photo_becomes_cover_with_credit_and_failure_falls_back_to_art(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.agent.covers=Covers(folder,BASE);self.bridge.media.return_value=picture((1600,1200))
+            job={**self.job,'photo':True,'credit':'Maria Silva'}
+            self.assertEqual(self.agent.process(job)['code'],'draft_ready')
+            draft=self.saved[0]['draft'];self.assertRegex(draft['capa_url'],PUBLIC.pattern);self.assertEqual(draft['capa_credito'],'Maria Silva')
+            self.bridge.media.assert_called_once_with(job['receipt']);self.assertIn(('/media/release',{'receipt':job['receipt']}),[c.args for c in self.bridge.call.call_args_list])
+            preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview')
+            self.assertEqual(preview['cover'],'photo');self.assertEqual(preview['coverUrl'],draft['capa_url'])
+            # Foto ilegível: a pauta segue com a arte do jornal, sem crédito de foto.
+            self.setUp();self.agent.covers=Covers(folder,BASE);self.bridge.media.side_effect=AgentError('fixture')
+            self.assertEqual(self.agent.process({**self.job,'photo':True})['code'],'draft_ready')
+            draft=self.saved[0]['draft'];self.assertRegex(draft['capa_url'],PUBLIC.pattern);self.assertNotIn('capa_credito',draft)
+            self.assertEqual(next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview')['cover'],'art')
+    def test_without_cover_storage_the_draft_keeps_the_default_brand_image(self):
+        self.assertEqual(self.agent.process({**self.job,'photo':True})['code'],'draft_ready')
+        self.assertNotIn('capa_url',self.saved[0]['draft']);self.bridge.media.assert_not_called()
+        self.assertNotIn('cover',next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview'))
     def test_approval_forwards_signed_exact_revision_without_regenerating(self):
         self.agent.ready=True;job={**self.job,'kind':'approve','draftId':str(uuid.uuid4()),'revision':1,'signature':'c'*64}
         self.editorial.decide.return_value={'url':'https://tomezap.com.br/noticia/pauta-teste/','revision':1,'deploy_requested':True}

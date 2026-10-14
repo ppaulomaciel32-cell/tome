@@ -11,14 +11,16 @@ from .collection import Collector
 from .writer import Writer
 from .pipeline import Pipeline
 from .manual import Manual,Editorial
+from .media import Covers
 
 def main():
     state=State()
     if '--healthcheck' in sys.argv: return 0 if state.healthy() else 1
     config=Config.env();stop=threading.Event()
     for sig in (signal.SIGTERM,signal.SIGINT): signal.signal(sig,lambda *_:stop.set())
-    pipeline=Pipeline(config,state,Collector(config,state),Writer(),Drafts(),Bridge())
-    manual=Manual(config,state,pipeline.collector,pipeline.writer,pipeline.drafts,pipeline.bridge,Editorial())
+    covers=Covers()
+    pipeline=Pipeline(config,state,Collector(config,state),Writer(),Drafts(),Bridge(),covers=covers)
+    manual=Manual(config,state,pipeline.collector,pipeline.writer,pipeline.drafts,pipeline.bridge,Editorial(),covers=covers)
     def heartbeat():
         while not stop.is_set():
             try: state.heartbeat()

@@ -3,6 +3,7 @@ import {timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {BridgeError,createController,loadBridgeConfig} from './controller.mjs';
 import {openVault} from './vault.mjs';
+import {openMediaStore} from './media.mjs';
 import {protectProviderLogs,safeLog} from './safe-log.mjs';
 
 export function createBridgeServer({controller,token,pipelineToken=''}) {
@@ -24,6 +25,12 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
         'POST /group':body=>controller.selectGroup(body),'POST /test':()=>controller.test()
       };
       const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /commands/claim':body=>controller.claimCommand(body),'POST /commands/result':body=>controller.commandResult(body),'POST /publication-status':body=>controller.publicationStatus(body),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
+      if(producer && path==='/media' && req.method==='GET'){
+        // Única resposta binária: a foto da pauta, só para a redação na rede interna.
+        const data=controller.media(new URL(req.url,'http://bridge.invalid').searchParams.get('receipt'));
+        res.setHeader('Content-Type','application/octet-stream');res.statusCode=200;return res.end(data);
+      }
+      if(producer)producerRoutes['POST /media/release']=body=>controller.releaseMedia(body);
       const action=(producer?producerRoutes:routes)[req.method+' '+path];if(!action)throw new BridgeError(404,'not_found','Endereço não encontrado.');
       let body={};
       if(req.method==='POST') {
@@ -44,7 +51,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
     const config=loadBridgeConfig();
     const adapter=await import('./baileys-adapter.mjs');
     const vault=openVault({directory:config.directory,key:config.key,codec:adapter.BufferJSON});
-    const controller=createController({config,vault,auth:vault.auth(adapter.initAuthCreds,adapter.reviveAppState),socketFactory:adapter.socketFactory,qrEncoder:adapter.qrEncoder});
+    const controller=createController({config,vault,auth:vault.auth(adapter.initAuthCreds,adapter.reviveAppState),socketFactory:adapter.socketFactory,qrEncoder:adapter.qrEncoder,mediaStore:openMediaStore(config.mediaDirectory)});
     const server=createBridgeServer({controller,token:config.token,pipelineToken:config.pipelineToken});
     server.listen(3090,'0.0.0.0',()=>safeLog('bridge_started'));
     await controller.resume();

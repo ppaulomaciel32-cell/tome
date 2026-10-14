@@ -31,8 +31,8 @@ class Editorial:
         except AgentError:return False
 
 class Manual:
-    def __init__(self,config,state,collector,writer,drafts,bridge,editorial,now=time.time):
-        self.config=config;self.state=state;self.collector=collector;self.writer=writer;self.drafts=drafts;self.bridge=bridge;self.editorial=editorial;self.now=now
+    def __init__(self,config,state,collector,writer,drafts,bridge,editorial,now=time.time,covers=None):
+        self.config=config;self.state=state;self.collector=collector;self.writer=writer;self.drafts=drafts;self.bridge=bridge;self.editorial=editorial;self.now=now;self.covers=covers
         self.prefix=state.prefix+'manual:';self.ready=False;self.checked=0
     def report(self,job,stage,state='running',code='ok'):
         try:self.bridge.call('/cycle-status',{'cycleId':job['id'],'state':state,'stage':stage,'pending':0,'code':code})
@@ -44,6 +44,19 @@ class Manual:
             except AgentError as error:
                 if not error.retryable or attempt==2:raise
                 time.sleep(2**attempt)
+    def cover(self,job,draft):
+        """Foto do editor ou arte do jornal. Falha de capa nunca derruba a pauta."""
+        if not self.covers or not self.covers.enabled:return None,None
+        if job.get('photo'):
+            try:
+                url=self.covers.photo(self.bridge.media(job['receipt']))
+                try:self.bridge.call('/media/release',{'receipt':job['receipt']})
+                except Exception:pass
+                credit=' '.join(str(job.get('credit') or '').split())[:120]
+                return {'capa_url':url,'capa_credito':credit if len(credit)>=2 else 'Foto enviada à Redação Tome Nota'},'photo'
+            except Exception:pass
+        try:return {'capa_url':self.covers.art(draft['titulo'],draft['localidade'])},'art'
+        except Exception:return None,None
     def check_deploy(self):
         if getattr(self,'last_deploy_check',0)+30>self.now():return
         self.last_deploy_check=self.now()
@@ -121,6 +134,10 @@ class Manual:
                 if not self.state.reserve('gemini',self.config.gemini_daily):result={'code':'quota_limit'};return result
                 memo['generation_started']=True;self.cache(job['id'],memo);self.report(job,'redacao')
                 memo['draft']=self.writer.write(job['text'],memo['sources']);memo['draft']['id']=str(uuid.uuid4());self.cache(job['id'],memo)
+            if not memo.get('cover_done'):
+                fields,kind=self.cover(job,memo['draft'])
+                if fields:memo['draft'].update(fields);memo['cover']=kind
+                memo['cover_done']=True;self.cache(job['id'],memo)
             if not memo.get('saved'):
                 self.report(job,'rascunho')
                 saved=self.retry(lambda:self.drafts.call({'action':'save','cycle_id':job['id'],'draft':memo['draft'],'seen':memo['seen'],'max_pending':self.config.max_pending}))
@@ -129,7 +146,8 @@ class Manual:
             draft=memo['draft'];self.report(job,'previa')
             self.bridge.call('/preview',{'id':memo['saved'],'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],'localidade':draft['localidade'],
                 'sources':[{'name':s['name'],'url':s['url']} for s in memo['sources']],
-                **({'single':'owner' if memo['sources'][0].get('owner') else 'official'} if len(memo['sources'])==1 else {})})
+                **({'single':'owner' if memo['sources'][0].get('owner') else 'official'} if len(memo['sources'])==1 else {}),
+                **({'cover':memo['cover'],'coverUrl':draft['capa_url']} if memo.get('cover') else {})})
             result={'code':'draft_ready','draftId':memo['saved']};return result
         except QuotaLimit:result={'code':'quota_limit'};return result
         except Exception:

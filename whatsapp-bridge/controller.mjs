@@ -1,6 +1,7 @@
 import {createHash,createHmac} from 'node:crypto';
 import {manualQueue,previewRegistry,parseManual,messageDigest,commandUUID} from './manual.mjs';
 import {normalizeJid,identityJid,canonicalNumber,numberVariants} from './identity.mjs';
+import {MAX_MEDIA,mediaTypes,sniff} from './media.mjs';
 export {normalizeJid} from './identity.mjs';
 
 export class BridgeError extends Error {
@@ -23,11 +24,11 @@ export function loadBridgeConfig(env = process.env) {
   if(editorialSigningKey && (!/^[a-f0-9]{64}$/.test(editorialSigningKey) || [pipelineToken,env.WA_BRIDGE_TOKEN].includes(editorialSigningKey)))throw Error('A assinatura editorial exige um segredo exclusivo.');
   return {enabled, number, allowedNumbers, groupName:'Comando Tome Nota', token:env.WA_BRIDGE_TOKEN,
     acceptOwnCommands:env.WA_ACCEPT_OWN_COMMANDS==='true',manualEnabled:env.WA_MANUAL_ENABLED==='true' && Boolean(pipelineToken),editorialSigningKey,
-    pipelineToken,
+    pipelineToken,mediaDirectory:env.WA_MEDIA_DIR || '',
     configured:enabled && Boolean(number && allowedNumbers.length), directory:env.WA_SESSION_DIR || '/data/session', key:env.WA_SESSION_KEY};
 }
 
-export function createController({config, vault, auth, socketFactory, qrEncoder, now = Date.now, schedule = setTimeout, cancel = clearTimeout}) {
+export function createController({config, vault, auth, socketFactory, qrEncoder, mediaStore = null, now = Date.now, schedule = setTimeout, cancel = clearTimeout}) {
   let socket = null, generation = 0, state = config.configured ? 'idle' : 'awaiting_configuration';
   if(vault.get('blocked'))state='needs_attention';
   let qr = null, pairingCode = null, pairingExpires = 0, retryTimer, attempt = 0, stopped = false, chain = Promise.resolve();
@@ -98,7 +99,15 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const sender=identityJid(key.participant);
       const allowed=await members(await metadata(group.id));
       if(!key.fromMe && !allowed.has(sender)) continue;
-      const text=message.message?.conversation ?? message.message?.extendedTextMessage?.text ?? message.message?.imageMessage?.caption;
+      // Foto pode chegar comprimida (imageMessage) ou como documento, que preserva a resolução.
+      const content=message.message?.documentWithCaptionMessage?.message || message.message || {};
+      const image=content.imageMessage || (mediaTypes.includes(content.documentMessage?.mimetype)?content.documentMessage:null);
+      const text=content.conversation ?? content.extendedTextMessage?.text ?? image?.caption;
+      if(image && config.manualEnabled && (typeof text!=='string' || text.trim().length<20)){
+        const hint=createHash('sha256').update(group.id+'|foto|'+key.id).digest('hex');
+        if(vault.claim(hint,now()))try{await sendGroup('Recebi a foto, mas sem a pauta. Mande a foto de novo com a pauta escrita na legenda (pelo menos uma frase), que eu preparo a matéria com ela na capa.');}catch{}
+        continue;
+      }
       if(typeof text!=='string' || text.length>4000) continue;
       if(key.fromMe && (vault.get('outbound',[]).some(x=>x.id===key.id) || vault.get('outboundHashes',[]).some(x=>x.hash===messageDigest(text) && x.at>now()-72*3600000)))continue;
       const command=text.trim().toUpperCase();
@@ -128,10 +137,26 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
             if(!config.editorialSigningKey){if(vault.claim(receipt,now()))await sendGroup('A aprovação ainda precisa da assinatura editorial configurada na ponte e no Supabase. Nada foi publicado.');continue;}
             parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
           }
+          let photo='none';
+          if(parsed.kind==='pauta' && image){
+            // "Foto: Fulano" ou "Crédito: Fulano" na legenda vira o crédito e sai do texto da pauta.
+            const credit=parsed.text.match(/^[ \t]*(?:foto|cr[ée]dito(?:[ \t]+da[ \t]+foto)?)[ \t]*:[ \t]*(.{2,80}?)[ \t]*$/im);
+            const rest=credit?parsed.text.replace(credit[0],'').trim():parsed.text;
+            if(credit && rest.length>=20){parsed.text=rest;parsed.credit=credit[1].replace(/[\x00-\x1f\x7f<>]/g,' ').trim();}
+            photo='failed';
+            if(mediaStore && socket.downloadMedia && mediaTypes.includes(image.mimetype) && Number(image.fileLength || 0)<=MAX_MEDIA){
+              try{
+                const data=await socket.downloadMedia(message);
+                if(Buffer.isBuffer(data) && data.length>=1000 && data.length<=MAX_MEDIA && sniff(data)){mediaStore.put(receipt,data);parsed.photo=true;photo='saved';}
+              }catch{}
+            }
+          }
           const result=manual.add(parsed,receipt,editorHash);
           if(result.job && parsed.kind!=='pauta')previews.decide(parsed.draftId);
           // Só a pauta recebe confirmação imediata; a decisão responde quando terminar.
-          if(result.job && parsed.kind==='pauta')await sendGroup('Pauta recebida. Vou preparar o rascunho e mando a prévia aqui. Nada é publicado sem você aprovar.');
+          if(result.job && parsed.kind==='pauta')await sendGroup((photo==='saved'?'Pauta e foto recebidas. A foto será a capa.'
+            :photo==='failed'?'Pauta recebida, mas não consegui usar a foto (envie JPG ou PNG de até 25 MB). A capa será a arte do jornal.'
+            :'Pauta recebida.')+' Vou preparar o rascunho e mando a prévia aqui. Nada é publicado sem você aprovar.');
         }catch(error){if(error.code==='queue_full')try{await sendGroup(error.message);}catch{}}
         continue;
       }
@@ -190,6 +215,9 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       vault.put('manual:workerAt',now());vault.put('manual:publisherReady',body?.publisherReady===true && Boolean(config.editorialSigningKey));
       return {enabled:true,command:manual.claim()};
     }),
+    // Entrega a foto à redação pela rede interna; apaga quando a redação confirma.
+    media:receipt=>{const data=/^[a-f0-9]{64}$/.test(receipt || '') && mediaStore?mediaStore.get(receipt):null;if(!data)fail(404,'media_not_found','Foto não encontrada.');return data;},
+    releaseMedia:body=>{if(!/^[a-f0-9]{64}$/.test(body?.receipt || ''))fail(400,'invalid_media','Identificador inválido.');mediaStore?.remove(body.receipt);return {ok:true};},
     publicationStatus:body=>run(async()=>{
       if(!commandUUID.test(body?.id || '') || !commandUUID.test(body?.draftId || '') || !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body?.url || ''))fail(400,'invalid_result','Resultado inválido.');
       const result=manual.publication(body);if(result.duplicate)return result;
@@ -223,7 +251,9 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(!validId.test(body?.id || '') || body.revision!==1 || typeof body.titulo!=='string' || body.titulo.length<3 || body.titulo.length>300
         || typeof body.resumo!=='string' || body.resumo.length<10 || body.resumo.length>500 || !Object.hasOwn(locals,body.localidade)
         || !Array.isArray(body.sources) || body.sources.length<1 || body.sources.length>5
-        || (body.sources.length===1 ? !['official','owner'].includes(body.single) : body.single!==undefined))fail(400,'invalid_preview','Prévia inválida.');
+        || (body.sources.length===1 ? !['official','owner'].includes(body.single) : body.single!==undefined)
+        || ![undefined,'photo','art'].includes(body.cover)
+        || (body.coverUrl!==undefined && !/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/.test(body.coverUrl)))fail(400,'invalid_preview','Prévia inválida.');
       for(const source of body.sources){
         let u;try{u=new URL(source.url);}catch{fail(400,'invalid_preview','Fonte inválida.');}
         if(u.protocol!=='https:' || u.username || u.password || u.hash || source.url.length>1500 || typeof source.name!=='string' || source.name.length<2 || source.name.length>100)fail(400,'invalid_preview','Fonte inválida.');
@@ -240,6 +270,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
       await sendGroup('RASCUNHO Nº '+n+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
         +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
+        +(body.cover?'\nCapa: '+(body.cover==='photo'?'foto enviada por você':'arte do jornal com a manchete')+(body.coverUrl?'\n'+body.coverUrl:''):'')
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id
         +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar, responda APROVAR '+n+' (ou "pode publicar"). Para descartar, REJEITAR '+n+'.':'\n\nNada publicado. Comandos de aprovação serão ativados nos próximos marcos.'));
       vault.put(key,'sent');return {sent:true};

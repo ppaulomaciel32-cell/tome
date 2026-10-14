@@ -42,6 +42,13 @@ test('rascunhos: fonte única só passa quando oficial ou material do editor, co
   const short=makeDraft();short.texto=single({}).texto;assert.equal(validateDraft(short,seen()),false);
   assert.equal(validateDraft(makeDraft(),two),false);
 });
+test('rascunhos: capa só do servidor do jornal; crédito exige capa e não aceita marcação',()=>{
+  const url='https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg';
+  assert.equal(validateDraft({...makeDraft(),capa_url:url},seen()),true);
+  assert.equal(validateDraft({...makeDraft(),capa_url:url,capa_credito:'Maria Silva'},seen()),true);
+  for(const bad of [{capa_url:'https://evil.example/a.jpg'},{capa_url:url.replace('imagens/','imagens/../')},{capa_url:null},{capa_credito:'Sem capa'},{capa_url:url,capa_credito:'<script>'},{capa_url:url,capa_credito:'x'}])
+    assert.equal(validateDraft({...makeDraft(),...bad},seen()),false);
+});
 test('rascunhos: gravação chama apenas RPC isolada, sem publicação ou rebuild',async()=>{
   const calls=[];const draft=makeDraft();const fn=createDraftHandler(env,{fetchImpl:async(url,options)=>{calls.push({url,options});return Response.json({saved:true,id:draft.id});}});
   const response=await fn(req({action:'save',cycle_id:crypto.randomUUID(),max_pending:5,draft,seen:seen()}));assert.equal(response.status,200);assert.equal(calls.length,1);

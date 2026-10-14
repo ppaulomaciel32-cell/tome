@@ -12,6 +12,9 @@ const equal = async(a,b) => {
 export function validateDraft(draft, seen) {
   if(!draft || !uuid.test(draft.id || '') || !text(draft.slug,3,240) || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(draft.slug)
     || !text(draft.titulo,3,300) || !text(draft.resumo,10,500) || !text(draft.texto,100,20000) || !locales.includes(draft.localidade)) return false;
+  // Capa opcional: só imagem gerada e servida pelo próprio servidor do jornal.
+  if(draft.capa_url!==undefined && !/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/.test(draft.capa_url)) return false;
+  if(draft.capa_credito!==undefined && (draft.capa_url===undefined || !text(draft.capa_credito,2,120) || /[<>\x00-\x1f]/.test(draft.capa_credito))) return false;
   const paragraphs = draft.texto.trim().split(/\n\s*\n/);
   const count = draft.texto.trim().split(/\s+/).length;
   if(!Array.isArray(draft.fontes) || draft.fontes.length<1 || draft.fontes.length>5) return false;
@@ -74,7 +77,7 @@ export function createDraftHandler(env, {fetchImpl=fetch}={}) {
           return reply(200,{drafts,cycle:cycles[0] || null,capabilities:{manual:env.TNN_MANUAL_ENABLED==='true'},...(writer ? {seen}:{})});
         }
         if(action==='draft' && uuid.test(url.searchParams.get('id') || '')) {
-          const rows=await db('rascunhos?select=id,slug,titulo,resumo,texto,localidade,fontes,evidencias,author,publisher,gerada_por,status,revisao,criado_em&id=eq.'+url.searchParams.get('id')+'&limit=1');
+          const rows=await db('rascunhos?select=id,slug,titulo,resumo,texto,localidade,fontes,evidencias,author,publisher,gerada_por,status,revisao,criado_em,capa_url,capa_credito&id=eq.'+url.searchParams.get('id')+'&limit=1');
           return reply(rows.length?200:404,rows[0] || {code:'not_found'});
         }
         return reply(400,{code:'invalid_action'});

@@ -11,6 +11,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {openVault} from '../whatsapp-bridge/vault.mjs';
 import {createController,loadBridgeConfig} from '../whatsapp-bridge/controller.mjs';
 import {createBridgeServer} from '../whatsapp-bridge/server.mjs';
+import {openMediaStore,sniff} from '../whatsapp-bridge/media.mjs';
 import {BufferJSON,initAuthCreds,reviveAppState,qrEncoder} from '../whatsapp-bridge/baileys-adapter.mjs';
 const number='5511999990000',owner='5511999990001',editor='5511999990002',group='120363123456789000@g.us';
 const config=()=>loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner+','+editor,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'});
@@ -26,12 +27,12 @@ test('nono dígito: equivalência restrita a celular brasileiro, sem alterar LID
 });
 const draftPreview=()=>({id:crypto.randomUUID(),revision:1,titulo:'Simulação de prévia privada',resumo:'Este conteúdo sintético não representa uma notícia real.',localidade:'regiao',sources:[{name:'Fonte A',url:'https://a.example/test'},{name:'Fonte B',url:'https://b.example/test'}]});
 async function vaultFixture(t){const directory=await mkdtemp(join(tmpdir(),'tnn-wa-'));const key=randomBytes(32).toString('hex');let vault=openVault({directory,key,codec:BufferJSON});t.after(async()=>{try{vault.close();}catch{}await rm(directory,{recursive:true,force:true});});return {directory,key,vault,reopen(){vault.close();vault=openVault({directory,key,codec:BufferJSON});return vault;}};}
-async function fixture(t,{cfg=config(),wrongNumber=false}={}){
+async function fixture(t,{cfg=config(),wrongNumber=false,mediaStore=null}={}){
   const v=await vaultFixture(t);const auth=v.vault.auth(()=>({registered:false}),value=>value);
   let callbacks,connections=0,time=Date.now();const sends=[],timers=[];
   let meta={id:group,subject:'Comando Tome Nota',participants:[{id:number+'@s.whatsapp.net'},{id:'100001@lid',phoneNumber:owner+'@s.whatsapp.net'},{id:'100002@lid',phoneNumber:editor+'@s.whatsapp.net'}]};
-  const socket={user:{id:(wrongNumber?owner:number)+':1@s.whatsapp.net'},async groupMetadata(id){return {...meta,id};},async groupFetchAllParticipating(){return {[group]:meta,other:{id:'123456789@g.us',subject:'Outro grupo',participants:[]}};},async resolveLid(pn){return pn===owner+'@s.whatsapp.net'?'100001@lid':'100002@lid';},async requestPairingCode(pn){assert.equal(pn,number);return 'ABCD1234';},async sendMessage(id,msg){sends.push({id,msg});return {key:{id:'sent-'+sends.length},message:{conversation:msg.text}};},end(){}};
-  const c=createController({config:cfg,vault:v.vault,auth,now:()=>time,qrEncoder:async()=> 'data:image/png;base64,Zml4dHVyZQ==',socketFactory:async args=>{callbacks=args;connections++;return socket;},schedule:(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;},cancel:()=>{}});
+  const socket={user:{id:(wrongNumber?owner:number)+':1@s.whatsapp.net'},async groupMetadata(id){return {...meta,id};},async groupFetchAllParticipating(){return {[group]:meta,other:{id:'123456789@g.us',subject:'Outro grupo',participants:[]}};},async resolveLid(pn){return pn===owner+'@s.whatsapp.net'?'100001@lid':'100002@lid';},async requestPairingCode(pn){assert.equal(pn,number);return 'ABCD1234';},async downloadMedia(){if(socket.mediaError)throw Error('fixture');return socket.media;},async sendMessage(id,msg){sends.push({id,msg});return {key:{id:'sent-'+sends.length},message:{conversation:msg.text}};},end(){}};
+  const c=createController({config:cfg,vault:v.vault,auth,mediaStore,now:()=>time,qrEncoder:async()=> 'data:image/png;base64,Zml4dHVyZQ==',socketFactory:async args=>{callbacks=args;connections++;return socket;},schedule:(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;},cancel:()=>{}});
   t.after(()=>c.close());
   const update=async value=>{callbacks.onUpdate(value);await c.idle();};
   const connect=async()=>{await c.start({confirmDedicated:true});await update({connection:'open'});};
@@ -278,4 +279,61 @@ test('backup consistente mantém sessão criptografada enquanto o cofre está ab
   const bytes=await readFile(file);assert.equal(bytes.includes(Buffer.from('fixture-private-backup')),false);
   const db=new DatabaseSync(file,{readOnly:true});assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');assert.equal(db.prepare('SELECT COUNT(*) AS count FROM vault').get().count,1);db.close();
   assert.deepEqual(f.vault.get('private'),{value:'fixture-private-backup'});assert.equal((await stat(file)).mode&0o777,0o600);
+});
+
+const jpeg=size=>Buffer.concat([Buffer.from([0xff,0xd8,0xff,0xe0]),Buffer.alloc(size,7)]);
+async function photoFixture(t){
+  const directory=await mkdtemp(join(tmpdir(),'tnn-media-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const store=openMediaStore(directory);
+  const f=await fixture(t,{mediaStore:store,cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});
+  await f.connect();await f.bind();
+  const send=async(inner,id=randomBytes(5).toString('hex'))=>{f.callbacks.onMessages({type:'notify',messages:[{key:{remoteJid:group,participant:'100001@lid',id,fromMe:false},messageTimestamp:Date.now()/1000,message:inner}]});await f.c.idle();};
+  return {f,store,directory,send};
+}
+test('foto: assinatura do arquivo decide o tipo; cofre de mídia recusa o resto',async t=>{
+  assert.equal(sniff(jpeg(2000)),'image/jpeg');assert.equal(sniff(Buffer.from('<html><script>alert(1)</script></html>')),null);assert.equal(sniff(Buffer.alloc(4)),null);
+  const directory=await mkdtemp(join(tmpdir(),'tnn-media-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const store=openMediaStore(directory);assert.equal(openMediaStore(''),null);
+  assert.throws(()=>store.put('a'.repeat(64),Buffer.from('não é imagem, é texto')));assert.throws(()=>store.put('../../etc/passwd',jpeg(2000)));
+  store.put('a'.repeat(64),jpeg(2000));assert.equal(store.get('a'.repeat(64)).length,2004);assert.equal(store.get('b'.repeat(64)),null);
+  assert.equal((await stat(join(directory,'a'.repeat(64)+'.img'))).mode&0o077,0);
+  store.remove('a'.repeat(64));assert.equal(store.get('a'.repeat(64)),null);
+});
+test('foto com pauta na legenda vira capa; crédito sai do texto; só a redação busca o arquivo',async t=>{
+  const {f,send}=await photoFixture(t);f.socket.media=jpeg(5000);
+  await send({imageMessage:{mimetype:'image/jpeg',fileLength:5004,caption:'Moradores do Pecém reclamam de buraco na avenida principal.\nFoto: Maria Silva'}});
+  assert.match(f.sends.at(-1).msg.text,/Pauta e foto recebidas/);
+  const {command}=await f.c.claimCommand({});assert.equal(command.photo,true);assert.equal(command.credit,'Maria Silva');assert.equal(command.text.includes('Maria'),false);
+  assert.equal(f.c.media(command.receipt).length,5004);assert.throws(()=>f.c.media('f'.repeat(64)),e=>e.code==='media_not_found');
+  const server=createBridgeServer({controller:f.c,token:'a'.repeat(64),pipelineToken:'b'.repeat(64)});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+  const base='http://127.0.0.1:'+server.address().port;
+  // O token do painel não alcança a foto; o da redação recebe os bytes e depois libera.
+  assert.equal((await fetch(base+'/media?receipt='+command.receipt,{headers:{'x-bridge-token':'a'.repeat(64)}})).status,404);
+  const got=await fetch(base+'/media?receipt='+command.receipt,{headers:{'x-pipeline-token':'b'.repeat(64)}});
+  assert.equal(got.status,200);assert.equal((await got.arrayBuffer()).byteLength,5004);
+  assert.equal((await fetch(base+'/media/release',{method:'POST',headers:{'x-pipeline-token':'b'.repeat(64),'Content-Type':'application/json'},body:JSON.stringify({receipt:command.receipt})})).status,200);
+  assert.equal((await fetch(base+'/media?receipt='+command.receipt,{headers:{'x-pipeline-token':'b'.repeat(64)}})).status,404);
+});
+test('foto: documento em alta resolução é aceito; arquivo falso ou falha vira capa do jornal; foto sem legenda pede a pauta',async t=>{
+  const {f,send}=await photoFixture(t);f.socket.media=jpeg(9000);
+  await send({documentWithCaptionMessage:{message:{documentMessage:{mimetype:'image/jpeg',fileLength:9004,caption:'Obra da ponte da Taíba avança e muda o trânsito no fim de semana.'}}}});
+  assert.equal((await f.c.claimCommand({})).command.photo,true);
+  f.socket.media=Buffer.from('<html>arquivo que só finge ser imagem</html>'.repeat(40));
+  await send({imageMessage:{mimetype:'image/jpeg',fileLength:1700,caption:'Feira de artesanato movimenta a praça de Paracuru neste sábado.'}});
+  assert.match(f.sends.at(-1).msg.text,/não consegui usar a foto/);
+  let job=(await f.c.claimCommand({})).command;assert.equal(job.kind,'pauta');assert.equal(job.photo,undefined);assert.throws(()=>f.c.media(job.receipt));
+  f.socket.media=jpeg(9000);f.socket.mediaError=true;
+  await send({imageMessage:{mimetype:'image/jpeg',fileLength:9004,caption:'Escola de Croatá abre matrículas para o próximo ano letivo.'}});
+  assert.match(f.sends.at(-1).msg.text,/não consegui usar a foto/);f.socket.mediaError=false;
+  // PDF com legenda continua sendo pauta de texto, sem tentativa de download.
+  const before=f.sends.length;
+  await send({imageMessage:{mimetype:'image/jpeg',fileLength:9004}},'sem-legenda');await send({imageMessage:{mimetype:'image/jpeg',fileLength:9004}},'sem-legenda');
+  assert.equal(f.sends.length,before+1);assert.match(f.sends.at(-1).msg.text,/Recebi a foto, mas sem a pauta/);
+});
+test('prévia informa a capa e só aceita endereço de imagem do próprio servidor',async t=>{
+  const f=await fixture(t);await f.connect();await f.bind();
+  const url='https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg';
+  for(const bad of [{cover:'video'},{coverUrl:'https://evil.example/x.jpg'},{coverUrl:'https://bot.tomezap.com.br/imagens/../segredo-1600.jpg'}])await assert.rejects(f.c.preview({...draftPreview(),...bad}),e=>e.code==='invalid_preview');
+  await f.c.preview({...draftPreview(),cover:'photo',coverUrl:url});assert.match(f.sends.at(-1).msg.text,/Capa: foto enviada por você/);assert.equal(f.sends.at(-1).msg.text.includes(url),true);
+  await f.c.preview({...draftPreview(),cover:'art'});assert.match(f.sends.at(-1).msg.text,/Capa: arte do jornal/);
 });

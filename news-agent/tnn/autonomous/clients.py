@@ -18,7 +18,7 @@ class Bridge:
         self.token=required('WA_PIPELINE_TOKEN')
         if not re.fullmatch(r'[a-f0-9]{64}',self.token): raise AgentError('Token do ciclo inválido.')
     def call(self,path,payload=None):
-        if path not in ('/pipeline-state','/preview','/notice','/cycle-status','/commands/claim','/commands/result','/publication-status'): raise AgentError('Operação do ciclo não autorizada.')
+        if path not in ('/pipeline-state','/preview','/notice','/cycle-status','/commands/claim','/commands/result','/publication-status','/media/release'): raise AgentError('Operação do ciclo não autorizada.')
         connection=http.client.HTTPConnection('whatsapp',3090,timeout=12)
         try:
             connection.request('POST' if payload is not None else 'GET',path,
@@ -32,3 +32,14 @@ class Bridge:
             raise AgentError('O grupo não confirmou a operação. Confira a prévia no painel.') from None
         finally: connection.close()
 
+    def media(self,receipt):
+        """Foto da pauta, pela rede interna. O recibo vem da própria fila da ponte."""
+        if not re.fullmatch(r'[a-f0-9]{64}',receipt or ''): raise AgentError('Identificador de foto inválido.')
+        connection=http.client.HTTPConnection('whatsapp',3090,timeout=30)
+        try:
+            connection.request('GET','/media?receipt='+receipt,headers={'x-pipeline-token':self.token})
+            response=connection.getresponse();raw=response.read(25*1024*1024+1)
+            if response.status!=200 or len(raw)>25*1024*1024: raise AgentError('A foto da pauta não está disponível.')
+            return raw
+        except (OSError,http.client.HTTPException): raise AgentError('A foto da pauta não pôde ser buscada.') from None
+        finally: connection.close()
