@@ -229,6 +229,38 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const q=body?.quota;if(q && Number.isInteger(q.used) && Number.isInteger(q.limit) && q.used>=0 && q.limit>0 && q.limit<=1000)vault.put('manual:quota',{used:Math.min(q.used,1000),limit:q.limit,at:now()});
       return {enabled:true,command:manual.claim()};
     }),
+    // Resumo da redação para o painel: só números, IDs e títulos já enviados ao grupo.
+    newsroom:()=>{
+      const q=manual.status(),quota=vault.get('manual:quota',null);
+      return {previews:previews.open().slice(-30).map(p=>({n:p.n,id:p.id,titulo:p.titulo,at:new Date(p.at).toISOString()})),
+        publishedToday:q.publishedToday,queued:q.queued,processing:q.processing,quota:quota?{used:quota.used,limit:quota.limit}:null,
+        workerSeenAt:vault.get('manual:workerAt',null),manualEnabled:Boolean(config.manualEnabled)};
+    },
+    // Decisão tomada no painel: mesmo caminho da mensagem no grupo, com assinatura própria.
+    panelDecision:body=>run(async()=>{
+      if(!config.manualEnabled)fail(409,'manual_disabled','A redação manual está desligada na ponte.');
+      if(!config.editorialSigningKey)fail(409,'awaiting_configuration','A assinatura editorial ainda não está configurada.');
+      if(!['approve','reject','edit'].includes(body?.kind) || !commandUUID.test(body?.draftId || '') || !/^[a-f0-9]{64}$/.test(body?.actor || '') || !/^[a-f0-9-]{36}$/.test(body?.nonce || ''))fail(400,'invalid_decision','Decisão inválida.');
+      if(vault.get('preview:'+body.draftId+':1')!=='sent')fail(409,'no_preview','Esse rascunho ainda não teve prévia confirmada no grupo.');
+      const number=previews.number(body.draftId),open=previews.open().some(p=>p.id===body.draftId);
+      if(!open)fail(409,'already_decided','Esse rascunho já foi decidido ou corrigido.');
+      const command={kind:body.kind,draftId:body.draftId,revision:1};
+      if(body.kind==='edit'){
+        const text=typeof body.text==='string'?body.text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g,' ').trim():'';
+        if(!['fix','title'].includes(body.mode) || text.length<5 || text.length>(body.mode==='title'?300:1500))fail(400,'invalid_decision','Escreva o pedido de correção (ou a nova manchete).');
+        Object.assign(command,{mode:body.mode,text});
+      }
+      // Recibo único por pedido do painel; repetição do mesmo pedido não duplica a fila.
+      const receipt=createHash('sha256').update('painel|'+body.actor+'|'+body.draftId+'|'+body.kind+'|'+body.nonce).digest('hex');
+      const editorHash=messageDigest('painel:'+body.actor);
+      command.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:body.kind==='edit'?'reject':body.kind,draft_id:body.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
+      const result=manual.add(command,receipt,editorHash);
+      if(result.duplicate)return {queued:true,duplicate:true,number};
+      previews.decide(body.draftId);
+      const verb={approve:'Aprovado pelo painel',reject:'Rejeitado pelo painel',edit:'Correção pedida pelo painel'}[body.kind];
+      try{await sendGroup(verb+': rascunho nº '+number+'.'+(body.kind==='approve'?' Vou publicar e aviso aqui com o link.':''));}catch{}
+      return {queued:true,number};
+    }),
     // Entrega a foto à redação pela rede interna; apaga quando a redação confirma.
     media:receipt=>{const data=/^[a-f0-9]{64}$/.test(receipt || '') && mediaStore?mediaStore.get(receipt):null;if(!data)fail(404,'media_not_found','Foto não encontrada.');return data;},
     releaseMedia:body=>{if(!/^[a-f0-9]{64}$/.test(body?.receipt || ''))fail(400,'invalid_media','Identificador inválido.');mediaStore?.remove(body.receipt);return {ok:true};},

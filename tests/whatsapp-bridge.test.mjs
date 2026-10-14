@@ -371,3 +371,16 @@ test('correção: assina só a retirada do rascunho antigo, renumera a prévia e
   await f.message({text:'STATUS'});const status=f.sends.at(-1).msg.text;
   assert.match(status,/Publicadas hoje: 0/);assert.match(status,/Redações de hoje: 3 de 60/);assert.match(status,/CORRIGIR número/);
 });
+test('painel: decisão usa o mesmo fluxo assinado, avisa o grupo e não decide duas vezes',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
+  const d=draftPreview(),actor='d'.repeat(64),nonce='11111111-2222-4333-8444-555555555555';
+  await assert.rejects(f.c.panelDecision({kind:'approve',draftId:d.id,actor,nonce}),e=>e.code==='no_preview');
+  await f.c.preview(d);
+  await assert.rejects(f.c.panelDecision({kind:'publish',draftId:d.id,actor,nonce}),e=>e.code==='invalid_decision');
+  await assert.rejects(f.c.panelDecision({kind:'edit',mode:'fix',text:'oi',draftId:d.id,actor,nonce}),e=>e.code==='invalid_decision');
+  const r=await f.c.panelDecision({kind:'approve',draftId:d.id,actor,nonce});assert.deepEqual(r,{queued:true,number:1});
+  assert.match(f.sends.at(-1).msg.text,/Aprovado pelo painel: rascunho nº 1/);
+  const {command}=await f.c.claimCommand({publisherReady:true});assert.equal(command.kind,'approve');assert.equal(command.draftId,d.id);assert.match(command.signature,/^[a-f0-9]{64}$/);
+  await assert.rejects(f.c.panelDecision({kind:'reject',draftId:d.id,actor,nonce:'11111111-2222-4333-8444-555555555556'}),e=>e.code==='already_decided');
+  const room=f.c.newsroom();assert.equal(room.previews.length,0);assert.equal(room.manualEnabled,true);
+});

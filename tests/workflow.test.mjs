@@ -56,7 +56,7 @@ test('fluxo: horário antigo, futuro e falha de consulta nunca viram atividade a
 });
 test('fluxo: ciclo no Supabase é fallback e códigos viram explicação segura',async()=>{
   const data=await setup({draftData:{drafts:[],cycle:{status:'skipped',etapa:'coleta',codigo:'weak_sources',atualizado_em:new Date(at).toISOString()}}}).reader();
-  assert.equal(data.cycle.stage,'coleta');assert.match(data.stations.find(s=>s.id==='coleta').detail,/duas fontes/);
+  assert.equal(data.cycle.stage,'coleta');assert.match(data.stations.find(s=>s.id==='coleta').detail,/Faltou fonte/);
 });
 test('fluxo: lê apenas colunas públicas e não transforma registro no banco em deploy verificado',async()=>{
   const f=setup({news:[{id,title:'Teste de segurança',slug:'teste',published_at:new Date(at-1000).toISOString(),body:'PRIVATE_BODY',token:'SECRET'}]});

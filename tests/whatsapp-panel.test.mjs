@@ -77,3 +77,22 @@ test('rascunhos exigem sessão autorizada e não aceitam mutações',async t=>{
     assert.equal(f.draftCalls.length,1);
   }
 });
+test('painel: decisão exige sessão e CSRF, vai à ponte com ator irreversível e mantém editores autorizados',async t=>{
+  const f=await fixture(t,editor);const id='0b6b3b6a-1c1d-4e2f-8a3b-4c5d6e7f8a9b';
+  const path='/painel-api/drafts/'+id+'/decision',body={kind:'approve',nonce:'11111111-2222-4333-8444-555555555555'};
+  assert.equal((await f.request(path,{method:'POST',body})).status,401);
+  assert.equal((await f.request(path,{method:'POST',cookie:f.cookie,body})).status,403);
+  assert.equal((await f.request(path,{method:'POST',cookie:f.cookie,csrf:f.csrf,body:{kind:'approve'}})).status,400);
+  const ok=await f.request(path,{method:'POST',cookie:f.cookie,csrf:f.csrf,body});assert.equal(ok.status,200);
+  const call=f.calls.at(-1);assert.equal(call.path,'/decision');assert.equal(call.body.draftId,id);assert.equal(call.body.kind,'approve');
+  assert.match(call.body.actor,/^[a-f0-9]{64}$/);assert.equal(JSON.stringify(call.body).includes(editor),false);
+  assert.equal((await f.request('/painel-api/drafts/'+id+'/decision',{cookie:f.cookie})).status,405);
+});
+test('painel: resumo da redação e saúde dos serviços exigem sessão',async t=>{
+  const f=await fixture(t);
+  for(const path of ['/painel-api/newsroom','/painel-api/infra'])assert.equal((await f.request(path)).status,401);
+  assert.equal((await f.request('/painel-api/newsroom',{cookie:f.cookie})).status,200);
+  const infra=await (await f.request('/painel-api/infra',{cookie:f.cookie})).json();
+  assert.deepEqual(infra.services.map(s=>s.id),['site','banco','whatsapp','robo','rascunhos','gemini']);
+  for(const s of infra.services)assert.ok(['ok','attention','unknown'].includes(s.state));
+});

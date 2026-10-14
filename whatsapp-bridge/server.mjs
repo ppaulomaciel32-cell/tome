@@ -22,7 +22,8 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
       const routes = {
         'GET /status':()=>controller.status(),'GET /pairing':()=>controller.pairing(),'GET /groups':()=>controller.groups(),
         'POST /start':body=>controller.start(body),'POST /pair-code':()=>controller.pairCode(),
-        'POST /group':body=>controller.selectGroup(body),'POST /test':()=>controller.test()
+        'POST /group':body=>controller.selectGroup(body),'POST /test':()=>controller.test(),
+        'GET /newsroom':()=>controller.newsroom(),'POST /decision':body=>controller.panelDecision(body)
       };
       const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /commands/claim':body=>controller.claimCommand(body),'POST /commands/result':body=>controller.commandResult(body),'POST /publication-status':body=>controller.publicationStatus(body),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
       if(producer && path==='/media' && req.method==='GET'){
@@ -35,7 +36,7 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
       let body={};
       if(req.method==='POST') {
         if(!/^application\/json(?:;|$)/.test(req.headers['content-type']||''))throw new BridgeError(415,'invalid_body','Use JSON.');
-        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>(producer?12000:2048))throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
+        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>(producer?12000:6000))throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
         try{body=JSON.parse(Buffer.concat(chunks));if(!body || Array.isArray(body)||typeof body!=='object')throw Error();}catch{throw new BridgeError(400,'invalid_body','Dados inválidos.');}
       }
       send(200,await action(body));

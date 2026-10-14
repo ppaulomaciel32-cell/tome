@@ -61,3 +61,17 @@ branch `feat/tomezap-robo-whatsapp`. A VPS Hostinger rodava `023e8db` (sem o
 - Crédito da foto na página pública (falta coluna em `tomenota_publications`).
 - Busca investigativa fora das fontes aprovadas; Tavily segue sem chave.
 - Teste real no grupo com foto: depende do Deploy da função.
+
+## 14/10/2026 — painel unificado (`/admin/`)
+
+- Rascunhos: número da prévia, capa e botões **Aprovar**, **Rejeitar**,
+  **Pedir correção** e **Trocar manchete**. O painel chama
+  `POST /painel-api/drafts/<id>/decision` (sessão + CSRF, dono ou editor
+  autorizado), que vai à ponte (`POST /decision`). A ponte assina e enfileira o
+  mesmo comando do grupo e avisa no WhatsApp. Ator = hash do usuário; nenhum
+  e-mail vai à ponte.
+- Visão geral com números reais (`/painel-api/newsroom` e `/painel-api/infra`).
+- "Serviços": site, banco, WhatsApp, robô, função de rascunhos e Gemini.
+- "Ferramentas": as cinco ferramentas da VPS, abertas pelo túnel SSH.
+- Textos atualizados (aprovação ativa, comandos do grupo, fonte única, fotos).
+- CSP do painel aceita imagens de `https://bot.tomezap.com.br` (capas).

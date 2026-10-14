@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = path.join(root, 'public-site/admin');
 const css = (await Promise.all(['panel.css','operations.css'].map(name=>fs.readFile(path.join(source,name),'utf8')))).join('\n');
-const scripts = await Promise.all(['icons.mjs','drafts.mjs','operations.mjs','analytics.mjs','shell.mjs'].map(async name => (await fs.readFile(path.join(source, name), 'utf8')).replace(/^import .*;\n/gm,'').replace(/^export /gm,'')));
+const scripts = await Promise.all(['icons.mjs','hub.mjs','drafts.mjs','operations.mjs','analytics.mjs','shell.mjs'].map(async name => (await fs.readFile(path.join(source, name), 'utf8')).replace(/^import .*;\n/gm,'').replace(/^export /gm,'')));
 scripts.push(`
 const root = document.getElementById('app');
 let cleanup = () => {};

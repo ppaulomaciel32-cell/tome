@@ -8,6 +8,7 @@ import {createWhatsAppClient} from './whatsapp.mjs';
 import {createDraftReader} from './drafts.mjs';
 import {createWorkflowReader} from './workflow.mjs';
 import {createAnalytics} from './analytics.mjs';
+import {createInfraReader} from './infra.mjs';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function loadConfig(env = process.env) {
@@ -68,6 +69,7 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
   const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
   const drafts=draftReader || createDraftReader(config,{fetchImpl});
   const workflow=workflowReader || createWorkflowReader(config,{whatsapp:wa,drafts,fetchImpl,now});
+  const infra=createInfraReader(config,{whatsapp:wa,drafts,fetchImpl,now});
   const connectAssets=new Map([
     ['/conectar',['text/html; charset=utf-8','index.html']],
     ['/conectar/',['text/html; charset=utf-8','index.html']],
@@ -126,12 +128,33 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const waPaths=new Map([['status','GET'],['pairing','GET'],['groups','GET'],['start','POST'],['pair-code','POST'],['group','POST'],['test','POST']].map(([p,m])=>['/painel-api/whatsapp/'+p,{p,m}]));
       const waRoute=waPaths.get(path);
       const draftRoute=path.match(/^\/painel-api\/drafts(?:\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}))?$/);
-      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap','/painel-api/workflow'].includes(path) && !waRoute && !draftRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      const decisionRoute=path.match(/^\/painel-api\/drafts\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\/decision$/);
+      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap','/painel-api/workflow','/painel-api/analytics','/painel-api/newsroom','/painel-api/infra'].includes(path) && !waRoute && !draftRoute && !decisionRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       const session = await auth.session(req.headers.cookie);
       if(path==='/painel-api/workflow'){
         if(req.method!=='GET')throw new PanelError(405,'read_only','Esta sala só acompanha o trabalho. Nenhuma publicação ou comando é executado aqui.');
         limit('workflow:'+session.user.id,10,60000);
         return send(200,await workflow());
+      }
+      if(decisionRoute){
+        // Mesma regra do grupo: o dono e os editores autorizados decidem; nada publica sem esta ação.
+        if(req.method!=='POST')throw new PanelError(405,'method_denied','Operação não permitida.');
+        if(!sameSecret(req.headers['x-csrf-token'],session.csrf))throw new PanelError(403,'csrf_denied','Atualize a página antes de continuar.');
+        limit('decision:'+session.user.id,10,60000);
+        const body=await jsonBody(req);
+        if(!/^[a-f0-9-]{36}$/.test(body.nonce || ''))throw new PanelError(400,'invalid_decision','Atualize a página e tente de novo.');
+        const actor=createHash('sha256').update('painel-usuario|'+session.user.id).digest('hex');
+        return send(200,await wa('/decision',{kind:body.kind,draftId:decisionRoute[1],mode:body.mode,text:body.text,actor,nonce:body.nonce}));
+      }
+      if(path==='/painel-api/newsroom'){
+        if(req.method!=='GET')throw new PanelError(405,'method_denied','Operação não permitida.');
+        limit('newsroom:'+session.user.id,30,60000);
+        return send(200,await wa('/newsroom'));
+      }
+      if(path==='/painel-api/infra'){
+        if(req.method!=='GET')throw new PanelError(405,'method_denied','Operação não permitida.');
+        limit('infra:'+session.user.id,20,60000);
+        return send(200,await infra());
       }
       if(draftRoute){
         if(req.method!=='GET')throw new PanelError(405,'read_only','Nesta etapa, o painel só permite conferir os rascunhos.');
