@@ -23,8 +23,9 @@ function head(template,{title,description,url,image,type='website'}) {
 export function articleHTML(template,item,config) {
   const url=absolute('/noticia/'+item.slug+'/',config.siteUrl),photo=safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl));
   const label=LOCALS[item.localidade]||LOCALS.regiao;
+  template=template.replace('<html lang="pt-BR">',`<html lang="pt-BR" data-localidade="${esc(item.localidade in LOCALS?item.localidade:'regiao')}">`);
   let page=head(template,{title:item.title+' | Tome Nota News',description:item.summary,url,image:photo,type:'article'});
-  const middleAd=`<aside class="ad-space ad-in-article" aria-label="Publicidade" hidden><span class="ad-label">Publicidade</span><ins class="adsbygoogle" style="display:block;text-align:center" data-ad-layout="in-article" data-ad-format="fluid" data-ad-client="${esc(config.adClient)}" data-ad-slot="0000000000"></ins></aside>`;
+  const middleAd=`<aside class="ad-space ad-in-article" aria-label="Publicidade" hidden><span class="ad-label">Publicidade</span><ins class="adsbygoogle" style="display:block;text-align:center" data-ad-position="middle" data-ad-layout="in-article" data-ad-format="fluid" data-ad-client="${esc(config.adClient)}" data-ad-slot="0000000000"></ins></aside>`;
   const paragraphs=item.body.split(/\n\s*\n/).map((p,i)=>'<p>'+esc(p)+'</p>'+(i===1?middleAd:'')).join('');
   const sources=(item.fontes||[]).filter(s=>{try{return validUrl(s.url);}catch{return false;}}).map(s=>`<li><a href="${esc(s.url)}" rel="noopener noreferrer">${esc(s.titulo)}</a></li>`).join('');
   const content=`<article id="article-view" class="wrap article-view"><a class="back-link" href="/localidade/${item.localidade in LOCALS?item.localidade:'regiao'}/">${esc(label)}</a><h1>${esc(item.title)}</h1><p class="article-summary">${esc(item.summary)}</p><p class="article-meta">${esc(item.author||'Redação Tome Nota')} · <time datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time></p><img class="article-cover" src="${esc(photo)}" alt="${esc(item.title)}" width="1600" height="900" fetchpriority="high"><div class="article-body">${paragraphs}</div>${sources?'<h2>Fontes consultadas</h2><ul>'+sources+'</ul>':''}${item.gerada_por==='ia'?'<p class="article-meta">Texto produzido com auxílio de inteligência artificial a partir das fontes indicadas.</p>':''}</article>`;
@@ -47,6 +48,14 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
   config.adClient=process.env.ADSENSE_CLIENT||config.adClient;
   if(!/^ca-pub-\d{16}$/.test(config.adClient))throw Error('Publisher AdSense inválido.');
   config.contactEmail=process.env.CONTACT_EMAIL||config.contactEmail||'';
+  config.ga4Id=process.env.GA4_MEASUREMENT_ID || '';
+  if(config.ga4Id && !/^G-[A-Z0-9]{6,20}$/.test(config.ga4Id))throw Error('GA4_MEASUREMENT_ID inválido.');
+  config.autoAds=process.env.ADSENSE_AUTO_ADS!=='false';
+  config.adSlots=Object.fromEntries(['top','middle','end','home'].map(position=>{
+    const value=process.env['ADSENSE_SLOT_'+position.toUpperCase()] || '';
+    if(value && (!/^\d{10}$/.test(value) || value==='0000000000'))throw Error('Slot AdSense inválido: '+position);
+    return [position,value];
+  }));
   let items=[];
   if(fixture)items=JSON.parse(await fs.readFile(fixture,'utf8'));
   else {

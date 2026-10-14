@@ -1,6 +1,7 @@
 import {icon} from './icons.mjs';
 import {draftList,draftDetail} from './drafts.mjs';
 import {mountOperations} from './operations.mjs';
+import {mountAnalytics} from './analytics.mjs';
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export const modules = [
   {id:'biblioteca', label:'Biblioteca', icon:'folder', eyebrow:'DA PAUTA À MATÉRIA', description:'Fotos, vídeos, textos e releases. O ponto de partida da sua redação.', action:'Explorar biblioteca', title:'Uma boa matéria começa aqui.', detail:'Organize os materiais por localidade e envie as pautas ao robô quando a biblioteca estiver conectada.'},
@@ -45,6 +46,7 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
   if(!preview)root.querySelector('.stage-notice span').innerHTML='<strong>Redação com revisão humana.</strong> A publicação exige prévia e APROVAR #ID no grupo; confira a ativação na sala ao vivo.';
   const opsLink=document.createElement('a');opsLink.href='#operacao';opsLink.dataset.nav='operacao';opsLink.innerHTML=icon('pulse')+'Redação ao vivo';
   root.querySelector('[data-nav=inicio]').after(opsLink);
+  const audience=document.createElement('a');audience.href='#audiencia';audience.className='nav-link';audience.textContent='Audiência';audience.dataset.nav='audiencia';opsLink.after(audience);
   let cleanupPage=()=>{};
   function closeMenu() {sidebar.classList.remove('open'); menu.setAttribute('aria-expanded','false');}
   menu.addEventListener('click', () => {const open = sidebar.classList.toggle('open'); menu.setAttribute('aria-expanded',String(open)); if (open) (sidebar.querySelector('[aria-current=page]') || sidebar.querySelector('a')).focus();});
@@ -54,6 +56,11 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
   const draw = (focus = false) => {
     cleanupPage();cleanupPage=()=>{};
     const id = location.hash.slice(1) || 'inicio';
+    if(id==='audiencia'){
+      if(preview)main.innerHTML='<h1>Audiência do jornal</h1><p>Demonstração: conecte o GA4 para ver dados reais.</p>';
+      else cleanupPage=mountAnalytics(main,whatsappRequest,onAuthError);
+      closeMenu();return;
+    }
     const item = modules.find(m=>m.id===id);
     const detail=id.match(/^rascunho\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/);
     const isDraft=id==='rascunhos' || Boolean(detail);

@@ -8,6 +8,8 @@
   function prepareSlots(client) {
     document.querySelectorAll("ins.adsbygoogle").forEach(slot => {
       slot.dataset.adClient = client;
+      const configured=window.TNN_CONFIG.adSlots?.[slot.dataset.adPosition];
+      if(configured!==undefined)slot.dataset.adSlot=configured || '0000000000';
       const hidden = !isConfigured(slot);
       slot.hidden = hidden;
       // Hide the label and reserved space too, including dynamically rendered articles.
@@ -29,6 +31,7 @@
     const client = window.TNN_CONFIG.adClient;
     prepareSlots(client);
     if (window.TNNConsent?.get() !== "all" || !/^ca-pub-\d{16}$/.test(client)) return;
+    if(window.TNN_CONFIG.autoAds===false && ![...document.querySelectorAll('ins.adsbygoogle')].some(isConfigured))return;
     if (document.getElementById("tnn-adsense")) { queueSlots(); return; }
     if (loading) return;
     loading = true;

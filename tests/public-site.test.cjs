@@ -182,9 +182,9 @@ test("seven HTML pages have metadata, one h1 and complete shared legal links", (
       assert.match(html, new RegExp('property="og:' + key + '"'), file);
     for (const link of ["politica-de-privacidade", "termos-de-uso", "sobre", "contato", "politica-de-cookies"])
       assert.match(html.slice(html.indexOf("<footer")), new RegExp(link + "\\.html"), file);
-    assert.equal((html.match(/<ins class="adsbygoogle"/g) || []).length, 2);
-    assert.equal((html.match(/<aside hidden class="ad-space /g) || []).length, 2);
-    assert.equal((html.match(/data-ad-client="ca-pub-2000164835494228"/g) || []).length, 2);
+    assert.equal((html.match(/<ins class="adsbygoogle"/g) || []).length, file === 'index.html' ? 3 : 2);
+    assert.equal((html.match(/<aside hidden class="ad-space /g) || []).length, file === 'index.html' ? 3 : 2);
+    assert.equal((html.match(/data-ad-client="ca-pub-2000164835494228"/g) || []).length, file === 'index.html' ? 3 : 2);
     assert.doesNotMatch(html, /<script[^>]+src="https:\/\/[^"]*google/);
     const title = html.match(/<title>(.*?)<\/title>/)[1];
     const description = html.match(/name="description" content="([^"]+)"/)[1];
