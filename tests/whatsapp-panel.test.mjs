@@ -96,3 +96,12 @@ test('painel: resumo da redação e saúde dos serviços exigem sessão',async t
   assert.deepEqual(infra.services.map(s=>s.id),['site','banco','whatsapp','robo','rascunhos','gemini']);
   for(const s of infra.services)assert.ok(['ok','attention','unknown'].includes(s.state));
 });
+test('imagem do painel copia todo módulo local importado pelo servidor',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const docker=await readFile(new URL('../panel-api/Dockerfile',import.meta.url),'utf8');
+  const seen=new Set(),queue=['server.mjs'];
+  while(queue.length){const name=queue.pop();if(seen.has(name))continue;seen.add(name);
+    const code=await readFile(new URL('../panel-api/'+name,import.meta.url),'utf8');
+    for(const [,dep] of code.matchAll(/from '\.\/([a-z-]+\.mjs)'/g))queue.push(dep);}
+  for(const name of seen)assert.match(docker,new RegExp('\\b'+name.replace('.','\\.')+'\\b'),name+' fora do Dockerfile');
+});
