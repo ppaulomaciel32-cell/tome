@@ -27,11 +27,9 @@
     const content = document.createElement("div");
     content.className = "wrap cookie-inner";
     const copy = document.createElement("p");
-    copy.append(window.TNN_CONFIG?.gaId
-      ? "Usamos armazenamento essencial para lembrar sua escolha. Publicidade e medição de audiência só serão ativadas com sua autorização. "
-      : "Usamos armazenamento essencial para lembrar sua escolha. Publicidade só será ativada com sua autorização. ");
+    copy.append("Usamos armazenamento essencial para lembrar sua escolha. Estatísticas de audiência e publicidade só serão ativadas com sua autorização. ");
     const link = document.createElement("a");
-    link.href = "./politica-de-cookies.html";
+    link.href = "/politica-de-cookies.html";
     link.textContent = "Política de Cookies";
     copy.append(link);
     const actions = document.createElement("div");

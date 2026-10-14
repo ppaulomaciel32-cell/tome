@@ -40,37 +40,16 @@ test('SSG publishes only visible stories, escapes data, builds localities and pr
    await fs.rm(temp,{recursive:true,force:true});
  }
 });
-test('SSG: blocos de anúncio, Analytics e capa leve só entram quando configurados',async()=>{
+test('SSG: capa gerada pela redação ganha versão leve; capa externa não',async()=>{
  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'tnn-ssg-'));
- const keys=['ADSENSE_SLOT_TOP','ADSENSE_SLOT_FOOTER','ADSENSE_SLOT_ARTICLE','GA_MEASUREMENT_ID'];const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
  const cover='https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg';
  const story={id:'1',slug:'capa-propria',title:'Notícia com capa própria',summary:'Resumo seguro para o teste.',body:'Primeiro.\n\nSegundo.\n\nTerceiro.\n\nQuarto.',status:'published',localidade:'pecem',gerada_por:'ia',published_at:'2026-01-01T12:00:00Z',updated_at:'2026-01-02T12:00:00Z',agent_revision:1,cover_url:cover,fontes:[]};
  const fixture=path.join(temp,'input.json');await fs.writeFile(fixture,JSON.stringify([story,{...story,slug:'capa-externa',cover_url:'https://example.com/image.jpg'}]));
- const read=(out,file)=>fs.readFile(path.join(out,file),'utf8');
  try {
-   for(const k of keys)delete process.env[k];
-   const plain=path.join(temp,'plain');await build({fixture,out:plain});
-   const before=await read(plain,'noticia/capa-propria/index.html');
-   assert.ok(!before.includes('analytics.js'));assert.ok(!before.includes('googletagmanager'));assert.ok(before.includes('data-ad-slot="0000000000"'));
-   assert.ok(before.includes(cover.replace('-1600.jpg','-800.webp')+' 800w'));assert.ok(!(await read(plain,'noticia/capa-externa/index.html')).includes('srcset='));
-   assert.ok((await read(plain,'politica-de-cookies.html')).includes('não instalamos ferramentas de estatística'));
-   Object.assign(process.env,{ADSENSE_SLOT_TOP:'1234567890',ADSENSE_SLOT_ARTICLE:'2345678901',GA_MEASUREMENT_ID:'G-TESTE12345'});
    const out=path.join(temp,'out');await build({fixture,out});
-   const page=await read(out,'noticia/capa-propria/index.html'),home=await read(out,'index.html'),cookies=await read(out,'politica-de-cookies.html');
-   assert.match(page,/aria-label="Publicidade topo"[^]*?data-ad-slot="1234567890"/);assert.ok(page.includes('data-ad-layout="in-article"'));assert.ok(page.includes('data-ad-slot="2345678901"'));
-   // Rodapé sem ID continua com zeros, e o ads.js o mantém escondido.
-   assert.match(page,/aria-label="Publicidade rodapé"[^]*?data-ad-slot="0000000000"/);
-   for(const html of [page,home,cookies,await read(out,'localidade/pecem/index.html')])assert.equal((html.match(/assets\/js\/analytics\.js" defer/g)||[]).length,1);
-   // O ID fica só na configuração pública; a página não carrega o script do Google diretamente.
-   assert.ok(!page.includes('googletagmanager'));assert.ok((await read(out,'assets/js/config.js')).includes('"gaId":"G-TESTE12345"'));
-   assert.ok(cookies.includes('Google Analytics'));assert.ok(!cookies.includes('não instalamos ferramentas de estatística'));
-   assert.ok(home.includes('srcset='));
-   for(const bad of [{ADSENSE_SLOT_TOP:'abc'},{GA_MEASUREMENT_ID:'UA-123'},{ADSENSE_SLOT_ARTICLE:'123'}]){
-     Object.assign(process.env,bad);await assert.rejects(build({fixture,out:path.join(temp,'bad')}));
-     Object.assign(process.env,{ADSENSE_SLOT_TOP:'1234567890',ADSENSE_SLOT_ARTICLE:'2345678901',GA_MEASUREMENT_ID:'G-TESTE12345'});
-   }
- }finally{
-   for(const k of keys){if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
-   await fs.rm(temp,{recursive:true,force:true});
- }
+   const read=file=>fs.readFile(path.join(out,file),'utf8');
+   assert.ok((await read('noticia/capa-propria/index.html')).includes(cover.replace('-1600.jpg','-800.webp')+' 800w'));
+   assert.ok(!(await read('noticia/capa-externa/index.html')).includes('srcset='));
+   assert.ok((await read('index.html')).includes('srcset='));
+ }finally{await fs.rm(temp,{recursive:true,force:true});}
 });

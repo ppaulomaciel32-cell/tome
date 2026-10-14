@@ -1,8 +1,8 @@
 # Entrega de 13/10/2026 (Claude) — fonte única, fotos, anúncios e medição
 
-Commits locais sobre `c92f2e0`, na branch `feat/tomezap-robo-whatsapp`. Já estão
-na VPS Hostinger (enviados por SSH, branch auxiliar `claude-entrega`). **Ainda
-não estão no GitHub**: o Render continua publicando `c92f2e0`.
+Commits do Claude sobre `c92f2e0`, integrados por merge ao `c335910` do Codex na
+branch `feat/tomezap-robo-whatsapp`. A VPS Hostinger rodava `023e8db` (sem o
+`c335910`) no momento do merge.
 
 ## O que mudou
 
@@ -23,8 +23,9 @@ não estão no GitHub**: o Render continua publicando `c92f2e0`.
    `Foto: nome` na legenda vira o crédito. Original guardado em até 4K;
    versões do site em 1600x900 JPEG e 800x450 WebP, sem EXIF. Sem foto, capa
    gráfica com manchete e localidade.
-6. **Site (aguardando GitHub).** `srcset` para as capas próprias; blocos do
-   AdSense por variável de build; Google Analytics 4 só após "Aceitar todos".
+6. **Site.** `srcset` para as capas próprias. Anúncios por build e GA4 com
+   consentimento ficaram com a implementação do Codex (`c335910`), integrada
+   por merge; a versão do Claude para esses dois itens foi descartada.
 
 ## Banco (já aplicado em produção)
 
@@ -46,11 +47,11 @@ não estão no GitHub**: o Render continua publicando `c92f2e0`.
 - `.env.autonomous`: `GEMINI_MAX_CALLS_PER_DAY=60`, `MAX_PENDING_DRAFTS=10`.
 - Contêiner `redacao`: Pillow, fonte DejaVu, 640 MB.
 
-## Variáveis novas de build no Render (todas opcionais)
+## Variáveis de build no Render (implementação do Codex, `c335910`)
 
-`ADSENSE_SLOT_TOP`, `ADSENSE_SLOT_FOOTER`, `ADSENSE_SLOT_ARTICLE` (10 dígitos)
-e `GA_MEASUREMENT_ID` (`G-…`). Auto Ads não precisa de variável: basta ligar
-na conta do AdSense, porque o `ads.js` já carrega o script com consentimento.
+`ADSENSE_SLOT_TOP`, `ADSENSE_SLOT_MIDDLE`, `ADSENSE_SLOT_END`,
+`ADSENSE_SLOT_HOME` (10 dígitos), `ADSENSE_AUTO_ADS` (padrão ligado) e
+`GA4_MEASUREMENT_ID` (`G-…`).
 
 ## Não feito nesta entrega
 
@@ -59,5 +60,4 @@ na conta do AdSense, porque o `ads.js` já carrega o script com consentimento.
 - `STATUS` com cota do dia.
 - Crédito da foto na página pública (falta coluna em `tomenota_publications`).
 - Busca investigativa fora das fontes aprovadas; Tavily segue sem chave.
-- Resumo de visitas dentro do painel (exige credencial da API do GA4 no servidor).
 - Teste real no grupo com foto: depende do Deploy da função.

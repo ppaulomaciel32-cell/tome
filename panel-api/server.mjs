@@ -7,6 +7,7 @@ import {createAuth, PanelError, normalizeEmail} from './auth.mjs';
 import {createWhatsAppClient} from './whatsapp.mjs';
 import {createDraftReader} from './drafts.mjs';
 import {createWorkflowReader} from './workflow.mjs';
+import {createAnalytics} from './analytics.mjs';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function loadConfig(env = process.env) {
@@ -63,6 +64,7 @@ const sameSecret = (a, b) => {
 };
 export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader,workflowReader} = {}) {
   const auth = createAuth(config, {fetchImpl, now}), limit = limiter(now);
+  const analytics=createAnalytics(config,{fetchImpl,now});
   const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
   const drafts=draftReader || createDraftReader(config,{fetchImpl});
   const workflow=workflowReader || createWorkflowReader(config,{whatsapp:wa,drafts,fetchImpl,now});
@@ -154,6 +156,7 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
         return send(200,data);
       }
       if (path === '/painel-api/session' && req.method === 'GET') return send(200, {user: session.user, csrf: session.csrf});
+      if(path==='/painel-api/analytics' && req.method==='GET')return send(200,await analytics());
       if (path === '/painel-api/bootstrap' && req.method === 'GET') return send(200, {
         user: session.user, milestone: 1,
         modules: ['biblioteca','infraestrutura','tracking','whatsapp','instagram','dashboard'].map(id => ({id, status: 'awaiting_connection'}))
