@@ -2,7 +2,7 @@
 import time
 import uuid
 from ..core import AgentError,normalize
-from .collection import digest,similar,local_score
+from .collection import digest,similar,local_score,accepted
 from .store import QuotaLimit
 
 class Pipeline:
@@ -39,13 +39,16 @@ class Pipeline:
             self.bridge.call('/cycle-status',{'state':'running','stage':'coleta','cycleId':cycle,'pending':len(context['drafts'])})
             rows=self.retry(lambda:self.collector.feeds(self.now()))
             known=context.get('seen',[])
-            candidate=next((r for r in rows if local_score(r['title'])>0 and not any(
-                s['hash'] in (digest(r['url']),digest(normalize(r['title']))) or similar(r['title'],s['titulo'],.75) for s in known)),None)
-            if not candidate: self.state.reset('coleta');status='skipped';code='no_candidates';return {'status':code}
-            sources=self.retry(lambda:self.collector.enrich(candidate,rows,self.now()))
-            if len(sources)<2:
+            candidates=[r for r in rows if local_score(r['title'])>0 and not any(
+                s['hash'] in (digest(r['url']),digest(normalize(r['title']))) or similar(r['title'],s['titulo'],.75) for s in known)]
+            if not candidates: self.state.reset('coleta');status='skipped';code='no_candidates';return {'status':code}
+            # Uma pauta fraca não pode travar o ciclo: tenta as próximas, sem avisar o grupo a cada rodada.
+            candidate=sources=None
+            for row in candidates[:4]:
+                found=self.retry(lambda:self.collector.enrich(row,rows,self.now()))
+                if accepted(found): candidate,sources=row,found;break
+            if not sources:
                 self.state.reset('coleta')
-                self.bridge.call('/notice',{'cycleId':cycle,'code':'weak_sources'})
                 status='skipped';code='weak_sources';return {'status':code}
             seen=[{'hash':digest(normalize(candidate['title'])),'tipo':'titulo','titulo':candidate['title']}]+[
                 {'hash':digest(s['url']),'tipo':'url','titulo':s['title']} for s in sources]
@@ -65,7 +68,8 @@ class Pipeline:
             draft_id=result['id'];self.state.reset('rascunho');stage='previa'
             self.report_stage(cycle,stage,len(context['drafts'])+1)
             self.bridge.call('/preview',{'id':draft_id,'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],
-                'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources]})
+                'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources],
+                **({'single':'official'} if len(sources)==1 else {})})
             self.state.reset('previa');return {'status':'draft_created','id':draft_id}
         except QuotaLimit:
             status='skipped';code='quota_limit';return {'status':code}

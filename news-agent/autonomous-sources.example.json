@@ -3,16 +3,23 @@
     "id": "governo-ceara",
     "name": "Governo do Ceará",
     "feed_url": "https://www.ceara.gov.br/feed/",
-    "domains": ["www.ceara.gov.br", "ceara.gov.br"],
+    "domains": [
+      "www.ceara.gov.br",
+      "ceara.gov.br"
+    ],
     "publisher_group": "governo-ceara",
-    "approved": false
+    "approved": false,
+    "official": true
   },
   {
     "id": "agencia-brasil",
     "name": "Agência Brasil",
     "feed_url": "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml",
-    "domains": ["agenciabrasil.ebc.com.br"],
+    "domains": [
+      "agenciabrasil.ebc.com.br"
+    ],
     "publisher_group": "ebc",
-    "approved": false
+    "approved": false,
+    "official": true
   }
 ]

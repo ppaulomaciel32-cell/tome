@@ -1,5 +1,5 @@
 import {createHash,createHmac} from 'node:crypto';
-import {manualQueue,parseManual,messageDigest,commandUUID} from './manual.mjs';
+import {manualQueue,previewRegistry,parseManual,messageDigest,commandUUID} from './manual.mjs';
 import {normalizeJid,identityJid,canonicalNumber,numberVariants} from './identity.mjs';
 export {normalizeJid} from './identity.mjs';
 
@@ -37,6 +37,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   const record = code => {const events=vault.get('events',[]); events.push({at:new Date(now()).toISOString(),code});vault.put('events',events.slice(-50));lastError=code;};
   const selection = ()=>vault.get('group',null);
   const manual=manualQueue(vault,now,fail);
+  const previews=previewRegistry(vault,now);
+  const label=id=>{const n=previews.number(id);return n?'Rascunho nº '+n:'#'+id;};
   const cycleState = ()=>{
     if(!config.pipelineToken)return {state:'not_implemented'};
     const cycle=vault.get('cycle',null);
@@ -76,7 +78,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     const group=selection(); if(!group) fail(409,'no_group','Escolha o grupo autorizado.');
     await members(await metadata(group.id));
     const sends=vault.get('sends',[]).filter(t=>t>now()-3600000);
-    if(sends.length>=20) fail(429,'send_limit','Limite de 20 mensagens por hora atingido. Aguarde.');
+    if(sends.length>=30) fail(429,'send_limit','Limite de 30 mensagens por hora atingido. Aguarde.');
     // Reserva antes do envio: falha ou reinício nunca libera mais mensagens que o limite.
     sends.push(now());vault.put('sends',sends);
     // Reserva antes do envio; a resposta incerta também não pode virar nova pauta.
@@ -105,6 +107,19 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const parsed=parseManual(text);
       if(config.manualEnabled && parsed){
         try{
+          if(parsed.kind!=='pauta' && !parsed.draftId){
+            // "APROVAR 12" ou "pode publicar": o ID real vem do registro da ponte, nunca do texto.
+            const open=previews.open();
+            const target=parsed.number?previews.byNumber(parsed.number):(open.length===1?open[0]:null);
+            if(!target){
+              if(vault.claim(receipt,now()))await sendGroup(parsed.number?'Não encontrei o rascunho nº '+parsed.number+'. Confira o número na prévia.'
+                :open.length?'Há '+open.length+' rascunhos aguardando. Diga qual, por exemplo: '+(parsed.kind==='approve'?'APROVAR ':'REJEITAR ')+open.at(-1).n+'\n'+open.slice(-8).map(p=>'Nº '+p.n+' — '+p.titulo).join('\n')
+                :'Não há rascunho aguardando decisão.');
+              continue;
+            }
+            parsed.draftId=target.id;
+          }
+          delete parsed.number;delete parsed.latest;
           if(parsed.kind==='approve' && vault.get('preview:'+parsed.draftId+':1')!=='sent'){
             if(vault.claim(receipt,now()))await sendGroup('Não há prévia confirmada para esse ID. Confira o rascunho e aguarde a prévia antes de aprovar.');continue;
           }
@@ -114,7 +129,9 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
             parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
           }
           const result=manual.add(parsed,receipt,editorHash);
-          if(result.job)await sendGroup(parsed.kind==='pauta'?'Pauta recebida. Vou conferir as fontes e preparar um rascunho com capa padrão. Depois você precisa enviar APROVAR #ID.':'Comando recebido. Vou conferir o ID e a revisão antes de executar.');
+          if(result.job && parsed.kind!=='pauta')previews.decide(parsed.draftId);
+          // Só a pauta recebe confirmação imediata; a decisão responde quando terminar.
+          if(result.job && parsed.kind==='pauta')await sendGroup('Pauta recebida. Vou preparar o rascunho e mando a prévia aqui. Nada é publicado sem você aprovar.');
         }catch(error){if(error.code==='queue_full')try{await sendGroup(error.message);}catch{}}
         continue;
       }
@@ -179,13 +196,15 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       await sendGroup('No ar: '+body.url+'\nCompartilhar: '+body.url);return {ok:true};
     }),
     commandResult:body=>run(async()=>{
-      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Não encontrei duas fontes independentes aprovadas. Envie links das fontes para esta pauta.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
+      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Não consegui fonte suficiente para esta pauta. Mande o link da fonte oficial (prefeitura, governo, MP, empresa pública) ou cole aqui o texto completo da nota, que eu preparo o rascunho.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
       if(!commandUUID.test(body?.id || '') || !commandUUID.test(body?.lease || '') || !Object.hasOwn(messages,body.code))fail(400,'invalid_result','Resultado inválido.');
       if(body.draftId && !commandUUID.test(body.draftId))fail(400,'invalid_result','ID inválido.');
       if(body.url && !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body.url))fail(400,'invalid_result','URL inválida.');
       if(body.code==='live' && !body.url)fail(400,'invalid_result','URL obrigatória.');
       const result=manual.finish(body);if(result.duplicate)return {ok:true,duplicate:true};
-      await sendGroup(messages[body.code]+(body.draftId?'\n#'+body.draftId:'')+(body.url?'\n'+body.url:''));return {ok:true};
+      // A prévia já avisa que o rascunho está pronto; não gastar outra mensagem.
+      if(body.code==='draft_ready')return {ok:true};
+      await sendGroup(messages[body.code]+(body.draftId?'\n'+label(body.draftId):'')+(body.url?'\n'+body.url:''));return {ok:true};
     }),
     cycleStatus:body=>run(()=>{
       if(!/^[a-f0-9-]{36}$/.test(body?.cycleId || '') || !['running','completed','skipped','failed','queue_full','awaiting_configuration'].includes(body.state)
@@ -203,7 +222,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const locals={'sao-goncalo':'São Gonçalo do Amarante',pecem:'Pecém',taiba:'Taíba',croata:'Croatá',paracuru:'Paracuru',regiao:'Região'};
       if(!validId.test(body?.id || '') || body.revision!==1 || typeof body.titulo!=='string' || body.titulo.length<3 || body.titulo.length>300
         || typeof body.resumo!=='string' || body.resumo.length<10 || body.resumo.length>500 || !Object.hasOwn(locals,body.localidade)
-        || !Array.isArray(body.sources) || body.sources.length<2 || body.sources.length>5)fail(400,'invalid_preview','Prévia inválida.');
+        || !Array.isArray(body.sources) || body.sources.length<1 || body.sources.length>5
+        || (body.sources.length===1 ? !['official','owner'].includes(body.single) : body.single!==undefined))fail(400,'invalid_preview','Prévia inválida.');
       for(const source of body.sources){
         let u;try{u=new URL(source.url);}catch{fail(400,'invalid_preview','Fonte inválida.');}
         if(u.protocol!=='https:' || u.username || u.password || u.hash || source.url.length>1500 || typeof source.name!=='string' || source.name.length<2 || source.name.length>100)fail(400,'invalid_preview','Fonte inválida.');
@@ -214,10 +234,14 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       online();const group=selection();if(!group)fail(409,'no_group','Confirme o grupo.');await members(await metadata(group.id,true));
       vault.put(key,'claimed');
       const clean=value=>value.replace(/[\r\n\x00-\x1f\x7f]/g,' ').trim();
-      await sendGroup('RASCUNHO — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
-        +'\n\nLocalidade: '+locals[body.localidade]+'\nFontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n')
+      const n=previews.add(body.id,clean(body.titulo));
+      const origin=body.single==='owner'?'Fonte: material enviado por você à redação'
+        :body.single==='official'?'Fonte única (oficial): '+clean(body.sources[0].name)+'\n'+body.sources[0].url
+        :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
+      await sendGroup('RASCUNHO Nº '+n+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
+        +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id
-        +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar esta revisão, envie APROVAR #'+body.id+'. A capa será a marca do jornal.':'\n\nNada publicado. Comandos de aprovação e capa serão ativados nos próximos marcos.'));
+        +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar, responda APROVAR '+n+' (ou "pode publicar"). Para descartar, REJEITAR '+n+'.':'\n\nNada publicado. Comandos de aprovação serão ativados nos próximos marcos.'));
       vault.put(key,'sent');return {sent:true};
     }),
     notice:body=>run(async()=>{

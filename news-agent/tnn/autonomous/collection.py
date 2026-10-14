@@ -42,6 +42,32 @@ class PageInfo(HTMLParser):
     def handle_data(self,data):
         if self.in_title:self.title+=data
 
+OFFICE=('.gov.br','.leg.br','.jus.br','.mp.br','.def.br')
+def public_office(hostname):
+    # Domínios reservados a órgãos públicos brasileiros; registro restrito pelo Registro.br.
+    return isinstance(hostname,str) and bool(re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+',hostname)) and hostname.endswith(OFFICE)
+
+def page_date(html):
+    info=PageInfo();info.feed(html)
+    if date(info.published):return info
+    # Páginas de órgãos costumam trazer a data só no JSON-LD.
+    found=re.search(r'"datePublished"\s*:\s*"([^"]{8,40})"',html)
+    if found and date(found.group(1)):info.published=found.group(1)
+    return info
+
+OWNER_URL='https://tomezap.com.br/sobre/'
+def owner_material(text,now):
+    """Texto longo colado pelo editor vira material de base, nunca fato conferido pelo robô."""
+    body=' '.join(re.sub(r'https://[^\s<>\"]+',' ',text).split())
+    if len(body)<400:return None
+    # O título aparece na lista pública de fontes; nunca expõe o texto privado do grupo.
+    return {'id':'redacao','name':'Material enviado à Redação Tome Nota','publisher_group':'redacao-tome-nota','title':'Informações recebidas pela Redação Tome Nota',
+        'url':OWNER_URL,'content':body[:12000],'published_date':datetime.fromtimestamp(now,timezone.utc).isoformat(),'owner':True}
+
+def accepted(sources):
+    """Duas fontes independentes, ou uma só quando é oficial ou material do próprio editor."""
+    return len(sources)>=2 or (len(sources)==1 and (sources[0].get('official') is True or sources[0].get('owner') is True))
+
 def clean(value):
     p=TextOnly(); p.feed(value or ''); return ' '.join(''.join(p.parts).split())
 
@@ -134,7 +160,8 @@ def parse_feed(raw,source,now):
         if not 3<=len(title)<=500 or not allowed(link,source.domains) or not fresh(published,now): continue
         content=clean(val('encoded','content','description','summary'))[:12000]
         rows.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,
-            'title':title,'url':canonical(link),'content':content,'published_date':date(published).isoformat()})
+            'title':title,'url':canonical(link),'content':content,'published_date':date(published).isoformat(),
+            **({'official':True} if source.official else {})})
     return rows
 
 class Collector:
@@ -147,26 +174,38 @@ class Collector:
         if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
         return sorted(result,key=lambda s:(local_score(s['title']),s['published_date']),reverse=True)
     def manual(self,text,now):
-        # Texto do WhatsApp é uma PAUTA, não prova de um acontecimento.
+        # Texto curto do WhatsApp é uma PAUTA, não prova de um acontecimento.
         try: rows=self.feeds(now)
         except AgentError: rows=[]
         query=text[:450]
         matches=[r for r in rows if similar(query,r['title'],.45)]
+        stamp=datetime.fromtimestamp(now,timezone.utc).isoformat()
         for url in re.findall(r'https://[^\s<>\"]+',text)[:5]:
             url=url.rstrip('.,;)]')
             source=next((s for s in self.config.sources if allowed(url,s.domains)),None)
-            if not source:continue
+            try: host=urlsplit(url).hostname
+            except ValueError: continue
+            # Link colado pelo editor: fonte aprovada ou domínio reservado a órgão público.
+            if not source and not public_office(host):continue
+            domains=source.domains if source else (host,)
             try:
-                html=self.public.get(url,source.domains).decode('utf-8',errors='replace');info=PageInfo();info.feed(html)
-                if not 3<=len(info.title)<=500 or not fresh(info.published,now,168):continue
-                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':info.title,
-                    'url':canonical(url),'content':clean(html)[:12000],'published_date':date(info.published).isoformat()})
+                html=self.public.get(url,domains).decode('utf-8',errors='replace');info=page_date(html)
+                title=' '.join(info.title.split())
+                if not 3<=len(title)<=500:continue
+                # Data ausente não bloqueia link escolhido pelo editor; data antiga, sim.
+                if date(info.published) and not fresh(info.published,now,168):continue
+                group=source.publisher_group if source else re.sub(r'[^a-z0-9]+','-',host).strip('-')[:80]
+                matches.insert(0,{'id':source.id if source else ('oficial-'+group)[:50].rstrip('-'),'name':source.name if source else host,'publisher_group':group,'title':title,
+                    'url':canonical(url),'content':clean(html)[:12000],'published_date':date(info.published).isoformat() if date(info.published) else stamp,
+                    **({'official':True} if (source.official if source else True) else {})})
             except AgentError:continue
         if self.config.tavily_free and len(self.independent(matches))<2 and self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):
             domains=sorted({d for s in self.config.sources for d in s.domains})
-            result=self.net.json('https://api.tavily.com/search',{'query':query+' Ceará','topic':'news','search_depth':'basic',
-                'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
-                {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
+            try:
+                result=self.net.json('https://api.tavily.com/search',{'query':query+' Ceará','topic':'news','search_depth':'basic',
+                    'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
+                    {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
+            except AgentError: result={}
             for row in result.get('results',[])[:5]:
                 source=next((s for s in self.config.sources if allowed(row.get('url'),s.domains)),None)
                 # Pauta manual pode tratar de notícia da semana; a data real segue no texto.
@@ -175,8 +214,13 @@ class Collector:
                 title=str(row.get('title',''))[:500]
                 if len(title)<3 or not similar(query,title,.45):continue
                 matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':title,
-                    'url':canonical(row['url']),'content':content,'published_date':date(row['published_date']).isoformat()})
-        return self.independent(matches)[:5]
+                    'url':canonical(row['url']),'content':content,'published_date':date(row['published_date']).isoformat(),
+                    **({'official':True} if source.official else {})})
+        found=self.independent(matches)[:5]
+        if accepted(found):return found
+        # Sem fonte suficiente na rede, o texto colado pelo editor é o material de base.
+        material=owner_material(text,now)
+        return [material] if material else found
     def enrich(self,candidate,rows,now):
         matches=[candidate]+[r for r in rows if r['url']!=candidate['url'] and similar(candidate['title'],r['title'])]
         sources=self.independent(matches)
@@ -190,7 +234,7 @@ class Collector:
                 if not source or not fresh(item.get('published_date'),now) or not similar(candidate['title'],str(item.get('title',''))): continue
                 matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':str(item['title'])[:500],
                     'url':canonical(item['url']),'content':clean(item.get('raw_content') or item.get('content'))[:12000],
-                    'published_date':date(item['published_date']).isoformat()})
+                    'published_date':date(item['published_date']).isoformat(),**({'official':True} if source.official else {})})
         # Feed curto ganha o texto da página, dentro dos mesmos domínios aprovados.
         for row in matches[:10]:
             if len(row['content'])>=800: continue

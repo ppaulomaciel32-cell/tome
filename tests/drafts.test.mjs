@@ -29,6 +29,19 @@ test('rascunhos: dados incompletos e falsas evidências recusados antes do banco
   const draft=makeDraft();draft.evidencias[0].trecho='citação inventada que não existe';assert.equal(validateDraft(draft,seen()),false);
   const fn=createDraftHandler(env,{fetchImpl:()=>assert.fail('não acessar banco')});assert.equal((await fn(req({action:'save',cycle_id:crypto.randomUUID(),max_pending:5,draft,seen:seen()}))).status,400);
 });
+test('rascunhos: fonte única só passa quando oficial ou material do editor, com texto mais curto',()=>{
+  const single=flag=>{const d=makeDraft();d.fontes=[{...d.fontes[0],...flag}];d.evidencias=d.evidencias.map(e=>({...e,fonte_id:d.fontes[0].id}));
+    d.texto=Array.from({length:4},()=>Array.from({length:40},()=> 'teste').join(' ')).join('\n\n');return d;};
+  const two=seen().slice(0,2);
+  assert.equal(validateDraft(single({}),two),false);
+  assert.equal(validateDraft(single({official:true}),two),true);
+  assert.equal(validateDraft(single({official:'true'}),two),false);
+  assert.equal(validateDraft(single({owner:true}),two),false);
+  assert.equal(validateDraft(single({owner:true,url:'https://tomezap.com.br/sobre/'}),two),true);
+  // Duas fontes continuam exigindo grupos distintos, 300 palavras e três registros de deduplicação.
+  const short=makeDraft();short.texto=single({}).texto;assert.equal(validateDraft(short,seen()),false);
+  assert.equal(validateDraft(makeDraft(),two),false);
+});
 test('rascunhos: gravação chama apenas RPC isolada, sem publicação ou rebuild',async()=>{
   const calls=[];const draft=makeDraft();const fn=createDraftHandler(env,{fetchImpl:async(url,options)=>{calls.push({url,options});return Response.json({saved:true,id:draft.id});}});
   const response=await fn(req({action:'save',cycle_id:crypto.randomUUID(),max_pending:5,draft,seen:seen()}));assert.equal(response.status,200);assert.equal(calls.length,1);

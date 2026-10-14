@@ -81,11 +81,23 @@ class AutonomousTests(unittest.TestCase):
         lock=self.state.lock();lock.acquire(blocking=False)
         try:self.assertEqual(self.pipeline.once()['status'],'busy');self.writer.write.assert_not_called()
         finally:lock.release()
-    def test_weak_source_warns_before_writing_and_never_saves(self):
+    def test_weak_source_stops_before_writing_never_saves_and_does_not_spam_group(self):
         self.collector.enrich.return_value=ROWS[:1]
         self.assertEqual(self.pipeline.once()['status'],'weak_sources');self.writer.write.assert_not_called()
         self.assertEqual([p['action'] for p in self.actions],['begin','finish'])
-        self.assertIn('/notice',[c.args[0] for c in self.bridge.call.call_args_list])
+        self.assertNotIn('/notice',[c.args[0] for c in self.bridge.call.call_args_list])
+    def test_weak_first_candidate_does_not_block_the_next_one(self):
+        other={**ROWS[0],'title':'Escola do Pecém abre vagas para curso técnico','url':'https://a.example/escola'}
+        self.collector.feeds.return_value=[copy.deepcopy(ROWS[0]),other]
+        self.collector.enrich.side_effect=lambda row,rows,now:ROWS[:1] if row['url']==ROWS[0]['url'] else copy.deepcopy(ROWS)
+        self.assertEqual(self.pipeline.once()['status'],'draft_created');self.assertEqual(self.collector.enrich.call_count,2)
+        self.assertEqual(self.writer.write.call_args.args[0],other['title'])
+    def test_single_official_source_becomes_a_draft_marked_as_single(self):
+        official=[{**ROWS[0],'official':True}];self.collector.enrich.return_value=copy.deepcopy(official)
+        self.writer.write.return_value={**article(),'fontes':copy.deepcopy(official)}
+        self.assertEqual(self.pipeline.once()['status'],'draft_created')
+        preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview')
+        self.assertEqual(preview['single'],'official');self.assertEqual(len(preview['sources']),1)
     def test_duplicate_checked_in_persistent_store_before_generation(self):
         remote=self.drafts.call.side_effect
         self.drafts.call.side_effect=lambda p=None:{'seen':True} if p and p['action']=='seen' else remote(p)
@@ -150,6 +162,16 @@ class AutonomousTests(unittest.TestCase):
         for change in ({'texto':'Curto.\n\nTeste.\n\nTeste.\n\nSegundo fonte.'},{'titulo':'Ponte recebe 98457 pessoas'},{'evidencias':[{'campo':'titulo','fonte_id':'evil','trecho':'inventado'}]}):
             fake.generate.return_value=json.dumps({**valid,**change})
             with self.assertRaises(AgentError):writer.write(TITLE,ROWS)
+    def test_single_source_mode_allows_shorter_text_and_hides_internal_flags_from_model(self):
+        fake=Mock();short='Segundo o órgão, a vistoria da ponte considera as condições locais e a segurança dos moradores. '*3
+        valid={**article(),'texto':'\n\n'.join([short.strip()]*4)}
+        fake.generate.return_value=json.dumps(valid);writer=Writer(fake)
+        with self.assertRaises(AgentError):writer.write(TITLE,ROWS)  # duas fontes: mínimo de 300 palavras
+        official=[{**ROWS[0],'official':True}]
+        self.assertEqual(writer.write(TITLE,official)['fontes'],official)
+        sent=fake.generate.call_args.args[1]
+        self.assertEqual(sent['modo'],'fonte_unica_oficial');self.assertNotIn('official',sent['fontes'][0]);self.assertNotIn('publisher_group',sent['fontes'][0])
+        self.assertEqual(Writer.mode([{**ROWS[0],'owner':True}]),'material_redacao');self.assertEqual(Writer.mode(ROWS),'multiplas_fontes')
     def test_config_refuses_auto_publish_and_unreviewed_model(self):
         with patch.dict(os.environ,{'AGENTE_REQUER_APROVACAO':'false'}):
             with self.assertRaises(AgentError):Config.env()

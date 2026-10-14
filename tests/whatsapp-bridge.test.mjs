@@ -108,8 +108,42 @@ test('manual: lease expira, fila persiste e tokens não podem abrir o pareamento
   assert.equal(f.vault.get('manual:queue')[0].text.includes('Pecém'),true);
 });
 test('manual: comandos inválidos não viram pautas e texto comum passa sem prefixo',()=>{
-  assert.equal(parseManual('APROVAR'),null);assert.equal(parseManual('APROVAR #invalido'),null);assert.equal(parseManual('CORRIGIR título'),null);
+  assert.equal(parseManual('APROVAR #invalido'),null);assert.equal(parseManual('CORRIGIR título'),null);assert.equal(parseManual('STATUS'),null);
   assert.equal(parseManual('Texto suficiente sobre a iluminação pública do Pecém.').kind,'pauta');
+});
+test('manual: número curto e frases inteiras viram decisão; frase dentro de pauta não',()=>{
+  assert.deepEqual(parseManual('APROVAR 12'),{kind:'approve',number:12,revision:1});
+  assert.deepEqual(parseManual('rejeitar nº 7.'),{kind:'reject',number:7,revision:1});
+  for(const text of ['APROVAR','pode publicar','Pode postar!','ok, pode publicar','publica essa'])assert.deepEqual(parseManual(text),{kind:'approve',latest:true,revision:1});
+  for(const text of ['rejeita','não publica','descartar'])assert.deepEqual(parseManual(text),{kind:'reject',latest:true,revision:1});
+  // Conversa ou pauta que só contém as palavras nunca aprova nada.
+  assert.equal(parseManual('A prefeitura disse que pode publicar o edital da obra na sexta-feira.').kind,'pauta');
+  assert.notEqual(parseManual('pode publicar amanhã')?.kind,'approve');assert.equal(parseManual('aprovar depois'),null);
+});
+test('manual: APROVAR pelo número e "pode publicar" assinam o ID guardado na ponte',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
+  await f.message({fromMe:true,text:'pode publicar'});assert.match(f.sends.at(-1).msg.text,/Não há rascunho aguardando/);
+  const a=draftPreview(),b=draftPreview();await f.c.preview(a);assert.match(f.sends.at(-1).msg.text,/RASCUNHO Nº 1 /);assert.match(f.sends.at(-1).msg.text,/APROVAR 1 /);
+  await f.c.preview(b);
+  await f.message({fromMe:true,text:'pode publicar'});assert.match(f.sends.at(-1).msg.text,/Há 2 rascunhos aguardando/);assert.equal(f.c.status().manual.queued,0);
+  await f.message({fromMe:true,text:'APROVAR 9'});assert.match(f.sends.at(-1).msg.text,/Não encontrei o rascunho nº 9/);
+  await f.message({fromMe:true,text:'aprovar 1'});
+  let {command}=await f.c.claimCommand({publisherReady:true});assert.equal(command.kind,'approve');assert.equal(command.draftId,a.id);assert.match(command.signature,/^[a-f0-9]{64}$/);
+  assert.equal('number' in command,false);assert.equal('latest' in command,false);
+  // Com um só rascunho em aberto, a frase curta basta.
+  await f.message({fromMe:true,text:'Pode publicar!'});
+  ({command}=await f.c.claimCommand({publisherReady:true}));assert.equal(command.draftId,b.id);
+  await f.c.commandResult({id:command.id,lease:command.lease,code:'publication_pending',draftId:b.id,url:'https://tomezap.com.br/noticia/pauta-teste/'});
+  assert.match(f.sends.at(-1).msg.text,/Rascunho nº 2/);
+});
+test('prévia de fonte única exige marcação oficial ou material do editor',async t=>{
+  const f=await fixture(t);await f.connect();await f.bind();
+  const one={...draftPreview(),sources:[{name:'Órgão oficial',url:'https://a.example/nota'}]};
+  await assert.rejects(f.c.preview(one),e=>e.code==='invalid_preview');
+  await assert.rejects(f.c.preview({...draftPreview(),single:'official'}),e=>e.code==='invalid_preview');
+  await assert.rejects(f.c.preview({...one,single:'portal'}),e=>e.code==='invalid_preview');
+  await f.c.preview({...one,single:'official'});assert.match(f.sends.at(-1).msg.text,/Fonte única \(oficial\): Órgão oficial/);
+  await f.c.preview({...one,id:crypto.randomUUID(),single:'owner'});assert.match(f.sends.at(-1).msg.text,/material enviado por você/);
 });
 test('configuração exige aprovação humana e separa chip dos editores',()=>{
   const base={WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'};
@@ -138,9 +172,9 @@ test('envio incerto de prévia não se repete e fica registrado no cofre',async 
 test('prévia e avisos compartilham o limite persistente e validam entrada',async t=>{
   const f=await fixture(t);await f.connect();await f.bind();
   for(const bad of [{localidade:'constructor'},{revision:2},{sources:[{name:'A',url:'javascript:alert(1)'}]}])await assert.rejects(f.c.preview({...draftPreview(),...bad}),e=>e.code==='invalid_preview');
-  for(let i=0;i<19;i++)await f.c.test();
-  await f.c.preview(draftPreview());assert.equal(f.sends.length,20);
-  await assert.rejects(f.c.notice({cycleId:crypto.randomUUID(),code:'weak_sources'}),e=>e.code==='send_limit');assert.equal(f.sends.length,20);
+  for(let i=0;i<29;i++)await f.c.test();
+  await f.c.preview(draftPreview());assert.equal(f.sends.length,30);
+  await assert.rejects(f.c.notice({cycleId:crypto.randomUUID(),code:'weak_sources'}),e=>e.code==='send_limit');assert.equal(f.sends.length,30);
 });
 test('saúde indica ciclo parado e STATUS mostra pendências sem habilitar publicação',async t=>{
   const f=await fixture(t,{cfg:{...config(),pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
@@ -215,10 +249,10 @@ test('APROVAR, EDITAR e REELS não publicam neste marco',async t=>{
   const f=await fixture(t);await f.connect();await f.bind();for(const text of ['APROVAR #123','EDITAR #123: outro texto','REELS #123'])await f.message({text});
   assert.equal(f.sends.length,3);assert.ok(f.sends.every(m=>m.msg.text.includes('Nenhuma matéria foi publicada')));assert.equal(f.c.status().publicationEnabled,false);
 });
-test('todas as mensagens, incluindo teste, respeitam limite persistente de 20 por hora',async t=>{
-  const f=await fixture(t);await f.connect();await f.bind();for(let i=0;i<20;i++)await f.c.test();
-  await assert.rejects(f.c.test(),e=>e.code==='send_limit');await f.message();assert.equal(f.sends.length,20);
-  assert.equal(f.vault.get('sends').length,20);f.advance(3600001);await f.c.test();assert.equal(f.sends.length,21);
+test('todas as mensagens, incluindo teste, respeitam limite persistente de 30 por hora',async t=>{
+  const f=await fixture(t);await f.connect();await f.bind();for(let i=0;i<30;i++)await f.c.test();
+  await assert.rejects(f.c.test(),e=>e.code==='send_limit');await f.message();assert.equal(f.sends.length,30);
+  assert.equal(f.vault.get('sends').length,30);f.advance(3600001);await f.c.test();assert.equal(f.sends.length,31);
 });
 test('reconexão usa backoff, restartRequired reconecta e logout não apaga sessão',async t=>{
   const f=await fixture(t);await f.c.start({confirmDedicated:true});

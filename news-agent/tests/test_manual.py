@@ -10,7 +10,7 @@ from tnn.core import AgentError
 from tnn.autonomous.manual import Manual,Editorial
 from tnn.autonomous.config import Config
 from tnn.autonomous.store import State
-from tnn.autonomous.collection import Collector
+from tnn.autonomous.collection import Collector,accepted,owner_material,public_office,OWNER_URL
 from tests.test_autonomous import SOURCE,SOURCE_B,ROWS,article
 
 class ManualTests(unittest.TestCase):
@@ -40,6 +40,41 @@ class ManualTests(unittest.TestCase):
     def test_weak_sources_stop_before_writing(self):
         self.collector.manual.return_value=ROWS[:1]
         self.assertEqual(self.agent.process(self.job)['code'],'weak_sources');self.writer.write.assert_not_called();self.assertEqual(len(self.saved),0)
+    def test_single_official_source_or_editor_material_becomes_draft_with_two_dedup_records(self):
+        for flag in ('official','owner'):
+            self.setUp();row={**ROWS[0],flag:True};self.collector.manual.return_value=[copy.deepcopy(row)]
+            self.writer.write.return_value={**article(),'fontes':[copy.deepcopy(row)]}
+            self.assertEqual(self.agent.process(self.job)['code'],'draft_ready')
+            self.assertEqual(len(self.saved[0]['seen']),2);self.assertEqual(len({s['hash'] for s in self.saved[0]['seen']}),2)
+            preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview')
+            self.assertEqual(preview['single'],flag);self.assertEqual(len(preview['sources']),1)
+    def test_single_commercial_portal_is_still_a_weak_source(self):
+        self.assertFalse(accepted([ROWS[0]]));self.assertFalse(accepted([]));self.assertTrue(accepted(ROWS))
+        self.assertTrue(accepted([{**ROWS[0],'official':True}]));self.assertFalse(accepted([{**ROWS[0],'official':'sim'}]))
+    def test_public_office_domains_and_editor_material_rules(self):
+        for host in ('www.ceara.gov.br','saogoncalodoamarante.ce.gov.br','www.mpce.mp.br','www.al.ce.leg.br'):self.assertTrue(public_office(host))
+        for host in ('gov.br.evil.example','evil.example','ceara.gov.br.com','',None,'gov.br'):self.assertFalse(public_office(host))
+        self.assertIsNone(owner_material('Pauta curta sobre a ponte',time.time()))
+        text='A prefeitura informou que a unidade de saúde do Pecém volta a atender na segunda-feira. '*6+'https://exemplo.example/x'
+        material=owner_material(text,time.time())
+        self.assertTrue(material['owner']);self.assertEqual(material['url'],OWNER_URL);self.assertNotIn('https://',material['content'])
+        self.assertNotIn('prefeitura',material['title'])
+    def test_pasted_official_link_without_date_and_pasted_text_are_accepted(self):
+        public=Mock();now=time.time();body='Segundo o órgão, a obra de iluminação da rodovia foi concluída e cobre vinte quilômetros do trecho. '*4
+        public.get.return_value=('<html><title>Obra concluída na rodovia</title><article>'+body+'</article></html>').encode()
+        collector=Collector(self.config,self.state,public=public);collector.feeds=Mock(return_value=[])
+        # Domínio de órgão público fora da lista: aceito porque o editor colou o link.
+        sources=collector.manual('Faz matéria disso https://www.ceara.gov.br/2026/10/obra/',now)
+        self.assertEqual(len(sources),1);self.assertTrue(sources[0]['official']);self.assertEqual(public.get.call_args.args[1],('www.ceara.gov.br',))
+        self.assertRegex(sources[0]['id'],r'^[a-z0-9-]{2,50}$');self.assertRegex(sources[0]['publisher_group'],r'^[a-z0-9-]{2,80}$')
+        # Portal comum fora da lista nunca é buscado.
+        public.get.reset_mock();self.assertEqual(collector.manual('Olha isso https://portal-qualquer.example/noticia',now),[]);public.get.assert_not_called()
+        # Data antiga continua bloqueando.
+        public.get.return_value=('<html><meta property="article:published_time" content="2020-01-01T00:00:00Z"><title>Antiga</title><p>'+body+'</p></html>').encode()
+        self.assertEqual(collector.manual('https://www.ceara.gov.br/antiga/',now),[])
+        # Texto longo colado pelo editor vira material de base quando não há fonte na rede.
+        pasted=collector.manual('Nota da associação de moradores: '+body,now)
+        self.assertEqual(len(pasted),1);self.assertTrue(pasted[0]['owner'])
     def test_approval_forwards_signed_exact_revision_without_regenerating(self):
         self.agent.ready=True;job={**self.job,'kind':'approve','draftId':str(uuid.uuid4()),'revision':1,'signature':'c'*64}
         self.editorial.decide.return_value={'url':'https://tomezap.com.br/noticia/pauta-teste/','revision':1,'deploy_requested':True}
@@ -94,5 +129,6 @@ class ManualTests(unittest.TestCase):
         sources=collector.manual('Pauta https://a.example/news https://b.example/news https://evil.example/a',now)
         self.assertEqual(len(sources),2);self.assertEqual(public.get.call_count,2)
         public.get.return_value=b'<html><title>Fonte sem data</title><p>Texto</p></html>';public.get.side_effect=None
-        self.assertEqual(collector.manual('https://a.example/news',now),[])
+        # Fonte aprovada comum, sozinha e sem marcação oficial, não basta.
+        self.assertFalse(accepted(collector.manual('https://a.example/news',now)))
 

@@ -14,16 +14,20 @@ export function validateDraft(draft, seen) {
     || !text(draft.titulo,3,300) || !text(draft.resumo,10,500) || !text(draft.texto,100,20000) || !locales.includes(draft.localidade)) return false;
   const paragraphs = draft.texto.trim().split(/\n\s*\n/);
   const count = draft.texto.trim().split(/\s+/).length;
-  if(paragraphs.length<4 || paragraphs.length>12 || count<300 || count>500) return false;
-  if(!Array.isArray(draft.fontes) || draft.fontes.length<2 || draft.fontes.length>5) return false;
+  if(!Array.isArray(draft.fontes) || draft.fontes.length<1 || draft.fontes.length>5) return false;
+  // Fonte única só passa quando marcada como oficial ou como material do próprio editor.
+  const single=draft.fontes.length===1;
+  if(single && draft.fontes[0]?.official!==true && draft.fontes[0]?.owner!==true) return false;
+  if(paragraphs.length<4 || paragraphs.length>12 || count<(single?150:300) || count>500) return false;
   const ids = new Set(), groups = new Set();
   for(const s of draft.fontes) {
     if(!s || !/^[a-z0-9-]{2,50}$/.test(s.id || '') || ids.has(s.id) || !text(s.title,3,500)
       || !text(s.name,2,100) || !/^[a-z0-9-]{2,80}$/.test(s.publisher_group || '')
-      || !https(s.url) || !text(s.content,160,12000) || !Number.isFinite(Date.parse(s.published_date))) return false;
+      || !https(s.url) || !text(s.content,160,12000) || !Number.isFinite(Date.parse(s.published_date))
+      || ![undefined,true].includes(s.official) || ![undefined,true].includes(s.owner) || (s.owner===true && s.url!=='https://tomezap.com.br/sobre/')) return false;
     ids.add(s.id); groups.add(s.publisher_group);
   }
-  if(groups.size < 2 || !Array.isArray(draft.evidencias) || draft.evidencias.length !== paragraphs.length+2) return false;
+  if((!single && groups.size < 2) || !Array.isArray(draft.evidencias) || draft.evidencias.length !== paragraphs.length+2) return false;
   const normalize = s => s.normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
   const fields = ['titulo','resumo',...paragraphs.map((_,i)=>'paragrafo_'+(i+1))];
   for(const field of fields) {
@@ -32,7 +36,7 @@ export function validateDraft(draft, seen) {
     const e=matches[0], source=draft.fontes.find(s=>s.id===e.fonte_id);
     if(!source || !text(e.trecho,20,500) || !normalize(source.content).includes(normalize(e.trecho))) return false;
   }
-  if(!Array.isArray(seen) || seen.length < 3 || seen.length>6 || new Set(seen.map(s=>s?.hash)).size!==seen.length) return false;
+  if(!Array.isArray(seen) || seen.length < (single?2:3) || seen.length>6 || new Set(seen.map(s=>s?.hash)).size!==seen.length) return false;
   if(seen.filter(s=>s.tipo==='titulo').length!==1 || seen.some(s=>!hash.test(s.hash || '') || !['url','titulo'].includes(s.tipo) || !text(s.titulo,3,500))) return false;
   return true;
 }

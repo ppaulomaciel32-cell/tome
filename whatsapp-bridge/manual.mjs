@@ -1,12 +1,36 @@
 import {createHash,randomUUID} from 'node:crypto';
 export const commandUUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export const messageDigest=text=>createHash('sha256').update(text.trim()).digest('hex');
+// Frases curtas e inteiras; nunca um trecho no meio de uma conversa ou de uma pauta.
+const approveWords=/^(?:aprovar|aprova|aprovo|aprovad[oa]|pode\s+(?:publicar|postar|subir)|(?:ok|sim|blz|beleza)[,.!]?\s+pode\s+(?:publicar|postar)|publica(?:r)?|posta(?:r)?|(?:publica|posta)(?:r)?\s+(?:essa|esta|isso|a\s+mat[ée]ria))[\s.!]*$/i;
+const rejectWords=/^(?:rejeitar|rejeita|rejeito|rejeitad[oa]|descartar|descarta|n[ãa]o\s+public(?:a|ar|ue)|n[ãa]o\s+post(?:a|ar|e))[\s.!]*$/i;
 export function parseManual(text){
-  const match=text.trim().match(/^(APROVAR|REJEITAR)\s+#?([a-f0-9-]{36})$/i);
-  if(match && commandUUID.test(match[2]))return {kind:match[1].toUpperCase()==='APROVAR'?'approve':'reject',draftId:match[2],revision:1};
+  const plain=text.trim();
+  const match=plain.match(/^(APROVAR|REJEITAR)\s+#?([a-f0-9-]{36})$/i);
+  if(match && commandUUID.test(match[2].toLowerCase()))return {kind:match[1].toUpperCase()==='APROVAR'?'approve':'reject',draftId:match[2].toLowerCase(),revision:1};
+  // Número curto da prévia: "APROVAR 12", "aprovar nº 12", "REJEITAR #12".
+  const short=plain.match(/^(APROVAR|REJEITAR)\s+(?:n[ºo°.]?\s*)?#?(\d{1,6})[\s.!]*$/i);
+  if(short)return {kind:short[1].toUpperCase()==='APROVAR'?'approve':'reject',number:Number(short[2]),revision:1};
+  if(approveWords.test(plain))return {kind:'approve',latest:true,revision:1};
+  if(rejectWords.test(plain))return {kind:'reject',latest:true,revision:1};
   if(/^(STATUS|APROVAR|REJEITAR|EDITAR|CORRIGIR|STORIES|REELS|PAUSAR|RETOMAR)(?:\s|:|$)/i.test(text))return null;
   const body=text.replace(/^(?:MANCHETE|PAUTA)\s*:\s*/i,'').trim();
   return body.length>=20 && body.length<=4000?{kind:'pauta',text:body}:null;
+}
+// Registro das prévias enviadas: dá a cada rascunho um número curto para o grupo.
+export function previewRegistry(vault,now){
+  const list=()=>vault.get('previews',[]).filter(p=>p.at>now()-7*86400000);
+  return {
+    add(id,titulo){
+      const rows=list(),old=rows.find(p=>p.id===id);if(old)return old.n;
+      const n=vault.get('previewSeq',0)+1;vault.put('previewSeq',n);
+      vault.put('previews',[...rows,{n,id,titulo:String(titulo).slice(0,90),at:now()}].slice(-60));return n;
+    },
+    number:id=>list().find(p=>p.id===id)?.n ?? null,
+    byNumber:n=>list().find(p=>p.n===n) || null,
+    open:()=>list().filter(p=>!p.decided && p.at>now()-72*3600000),
+    decide(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){row.decided=true;vault.put('previews',rows);}}
+  };
 }
 export function manualQueue(vault,now,fail){
   const list=()=>vault.get('manual:queue',[]);

@@ -12,10 +12,19 @@ class Writer:
         'required':['campo','fonte_id','trecho'],'additionalProperties':False}}
     success['required'].append('evidencias')
     def __init__(self,gemini=None): self.gemini=gemini or Gemini()
+    @staticmethod
+    def mode(sources):
+        if len(sources)!=1:return 'multiplas_fontes'
+        return 'material_redacao' if sources[0].get('owner') is True else 'fonte_unica_oficial'
     def write(self,headline,sources):
-        raw=self.gemini.generate(Path(__file__).with_name('editorial.txt').read_text(),{'pauta':headline,'fontes':sources},self.schema)
+        mode=self.mode(sources)
+        # O modelo recebe só o necessário; marcações internas não entram no prompt.
+        public=[{k:s[k] for k in ('id','name','title','url','content','published_date')} for s in sources]
+        raw=self.gemini.generate(Path(__file__).with_name('editorial.txt').read_text(),{'modo':mode,'pauta':headline[:600],'fontes':public},self.schema)
         article=parse_article(raw,sources)
-        if not 300<=len(article['texto'].split())<=500: raise AgentError('A redação deve ter de 300 a 500 palavras, sem preencher lacunas com suposições.')
+        # Fonte única rende texto mais curto: melhor curto do que preenchido com suposição.
+        lower=300 if mode=='multiplas_fontes' else 150
+        if not lower<=len(article['texto'].split())<=500: raise AgentError('A redação ficou fora do tamanho permitido, sem preencher lacunas com suposições.')
         try:
             evidence=json.loads(raw)['evidencias']
             paragraphs=re.split(r'\n\s*\n',article['texto'])

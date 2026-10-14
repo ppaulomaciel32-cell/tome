@@ -14,6 +14,7 @@ class Source:
     feed_url: str
     domains: tuple[str, ...]
     publisher_group: str
+    official: bool = False
 
 @dataclass(frozen=True)
 class Config:
@@ -22,7 +23,7 @@ class Config:
     tavily_free: bool = False
     interval: int = 1200
     max_pending: int = 5
-    gemini_daily: int = 20
+    gemini_daily: int = 40
     tavily_daily: int = 20
     tavily_monthly: int = 600
     sources: tuple[Source, ...] = ()
@@ -57,10 +58,11 @@ class Config:
                 if not re.fullmatch(r'[a-z0-9-]{2,50}', row['id']) or not re.fullmatch(r'[a-z0-9-]{2,80}', row['publisher_group']): raise ValueError()
                 name = str(row['name']).strip()
                 if not 2 <= len(name) <= 100: raise ValueError()
-                sources.append(Source(row['id'], name, row['feed_url'], domains, row['publisher_group']))
+                if row.get('official', False) not in (True, False): raise ValueError()
+                sources.append(Source(row['id'], name, row['feed_url'], domains, row['publisher_group'], row.get('official') is True))
             except (KeyError, TypeError, ValueError): raise AgentError('Confira URL, domínio e grupo editorial de cada fonte.') from None
         if len({s.id for s in sources}) != len(sources): raise AgentError('As fontes precisam de IDs únicos.')
         return cls(os.getenv('AUTONOMOUS_ENABLED') == 'true', os.getenv('GEMINI_FREE_TIER_CONFIRMED') == 'true',
             os.getenv('TAVILY_FREE_TIER_CONFIRMED') == 'true', 1200,
-            bounded('MAX_PENDING_DRAFTS',5,1,10), bounded('GEMINI_MAX_CALLS_PER_DAY',20,1,72),
+            bounded('MAX_PENDING_DRAFTS',5,1,10), bounded('GEMINI_MAX_CALLS_PER_DAY',40,1,200),
             bounded('TAVILY_MAX_CALLS_PER_DAY',20,0,30), bounded('TAVILY_MAX_CALLS_PER_MONTH',600,0,900), tuple(sources),manual_enabled=os.getenv('MANUAL_ENABLED')=='true')

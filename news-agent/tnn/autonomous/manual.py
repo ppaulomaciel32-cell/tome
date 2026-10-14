@@ -6,7 +6,7 @@ import time
 import uuid
 from ..core import AgentError,normalize
 from ..providers import Net
-from .collection import digest
+from .collection import digest,accepted
 from .store import QuotaLimit
 
 class Editorial:
@@ -106,11 +106,12 @@ class Manual:
                 memo['started']=True;self.cache(job['id'],memo)
             if not memo.get('sources'):
                 self.report(job,'coleta');sources=self.collector.manual(job['text'],self.now())
-                if len(sources)<2:result={'code':'weak_sources'};return result
+                if not accepted(sources):result={'code':'weak_sources'};return result
                 memo['sources']=sources
                 # Deduplicação da pauta e das URLs antes de gastar geração.
                 memo['seen']=[{'hash':digest(normalize(job['text'])),'tipo':'titulo','titulo':job['text'][:500]}]+[
-                    {'hash':digest(s['url']),'tipo':'url','titulo':s['title']} for s in sources]
+                    # Material do editor não tem URL própria: a deduplicação usa o conteúdo.
+                    {'hash':digest('material:'+normalize(s['content']) if s.get('owner') else s['url']),'tipo':'url','titulo':s['title']} for s in sources]
                 if self.drafts.call({'action':'seen','hashes':[s['hash'] for s in memo['seen']]}).get('seen'):
                     result={'code':'already_seen'};return result
                 self.cache(job['id'],memo)
@@ -127,7 +128,8 @@ class Manual:
                 memo['saved']=saved['id'];self.cache(job['id'],memo)
             draft=memo['draft'];self.report(job,'previa')
             self.bridge.call('/preview',{'id':memo['saved'],'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],'localidade':draft['localidade'],
-                'sources':[{'name':s['name'],'url':s['url']} for s in memo['sources']]})
+                'sources':[{'name':s['name'],'url':s['url']} for s in memo['sources']],
+                **({'single':'owner' if memo['sources'][0].get('owner') else 'official'} if len(memo['sources'])==1 else {})})
             result={'code':'draft_ready','draftId':memo['saved']};return result
         except QuotaLimit:result={'code':'quota_limit'};return result
         except Exception:
