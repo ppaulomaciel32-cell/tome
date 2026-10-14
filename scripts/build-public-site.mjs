@@ -9,6 +9,26 @@ const json=value=>JSON.stringify(value).replace(/</g,'\\u003c');
 const absolute=(p,site)=>new URL(p,site).href;
 function validUrl(value) {const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password)throw Error('HTTPS required');return u.href.replace(/\/$/,'');}
 function safePhoto(value,fallback){try{return validUrl(value);}catch{return fallback;}}
+// Capas geradas pela redação têm uma versão leve; o navegador escolhe a melhor.
+const ownCover=/^https:\/\/bot\.tomezap\.com\.br\/imagens\/([a-f0-9]{32})-1600\.jpg$/;
+const responsive=(photo,sizes)=>{const m=ownCover.exec(photo);return m?` srcset="https://bot.tomezap.com.br/imagens/${m[1]}-800.webp 800w, ${esc(photo)} 1600w" sizes="${sizes}"`:'';};
+// Blocos manuais do AdSense: sem ID configurado o bloco fica com zeros e o ads.js o esconde.
+const AD_POSITIONS={top:'Publicidade topo',footer:'Publicidade rodapé'};
+export function adSlots(env=process.env){
+  const read=key=>{const value=(env[key]||'').trim();if(value && !/^\d{10}$/.test(value))throw Error('Bloco AdSense inválido em '+key+': use os 10 dígitos do bloco.');return value==='0000000000'?'':value;};
+  return {top:read('ADSENSE_SLOT_TOP'),footer:read('ADSENSE_SLOT_FOOTER'),article:read('ADSENSE_SLOT_ARTICLE')};
+}
+export function placeAds(html,slots={}){
+  for(const [key,label] of Object.entries(AD_POSITIONS))if(slots[key])html=html.replace(new RegExp('(aria-label="'+label+'"[^]*?data-ad-slot=")0000000000(")','g'),'$1'+slots[key]+'$2');
+  return html;
+}
+// Google Analytics entra só quando o ID existe; a política de cookies acompanha.
+const GA_POLICY_OLD='Nesta versão, não instalamos ferramentas de estatística com cookies.';
+const GA_POLICY_NEW='Usamos o Google Analytics para contar visitas e saber quais matérias são mais lidas. Ele só é carregado depois que você escolhe “Aceitar todos” e pode criar cookies de medição.';
+export function placeAnalytics(html,gaId){
+  if(!gaId)return html;
+  return html.replace(/(<script src="\.?\/assets\/js\/ads\.js" defer><\/script>)/,(_,tag)=>tag+'\n'+tag.replace('ads.js','analytics.js')).replace(GA_POLICY_OLD,GA_POLICY_NEW);
+}
 const date=value=>new Intl.DateTimeFormat('pt-BR',{dateStyle:'long',timeZone:'America/Fortaleza'}).format(new Date(value));
 const nav=()=>'<nav class="wrap locality-nav" aria-label="Notícias por localidade">'+Object.entries(LOCALS).map(([slug,label])=>`<a href="/localidade/${slug}/">${label==='São Gonçalo do Amarante'?'São Gonçalo':label}</a>`).join('')+'</nav>';
 function head(template,{title,description,url,image,type='website'}) {
@@ -24,17 +44,17 @@ export function articleHTML(template,item,config) {
   const url=absolute('/noticia/'+item.slug+'/',config.siteUrl),photo=safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl));
   const label=LOCALS[item.localidade]||LOCALS.regiao;
   let page=head(template,{title:item.title+' | Tome Nota News',description:item.summary,url,image:photo,type:'article'});
-  const middleAd=`<aside class="ad-space ad-in-article" aria-label="Publicidade" hidden><span class="ad-label">Publicidade</span><ins class="adsbygoogle" style="display:block;text-align:center" data-ad-layout="in-article" data-ad-format="fluid" data-ad-client="${esc(config.adClient)}" data-ad-slot="0000000000"></ins></aside>`;
+  const middleAd=`<aside class="ad-space ad-in-article" aria-label="Publicidade" hidden><span class="ad-label">Publicidade</span><ins class="adsbygoogle" style="display:block;text-align:center" data-ad-layout="in-article" data-ad-format="fluid" data-ad-client="${esc(config.adClient)}" data-ad-slot="${esc(config.adSlots?.article||'0000000000')}"></ins></aside>`;
   const paragraphs=item.body.split(/\n\s*\n/).map((p,i)=>'<p>'+esc(p)+'</p>'+(i===1?middleAd:'')).join('');
   const sources=(item.fontes||[]).filter(s=>{try{return validUrl(s.url);}catch{return false;}}).map(s=>`<li><a href="${esc(s.url)}" rel="noopener noreferrer">${esc(s.titulo)}</a></li>`).join('');
-  const content=`<article id="article-view" class="wrap article-view"><a class="back-link" href="/localidade/${item.localidade in LOCALS?item.localidade:'regiao'}/">${esc(label)}</a><h1>${esc(item.title)}</h1><p class="article-summary">${esc(item.summary)}</p><p class="article-meta">${esc(item.author||'Redação Tome Nota')} · <time datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time></p><img class="article-cover" src="${esc(photo)}" alt="${esc(item.title)}" width="1600" height="900" fetchpriority="high"><div class="article-body">${paragraphs}</div>${sources?'<h2>Fontes consultadas</h2><ul>'+sources+'</ul>':''}${item.gerada_por==='ia'?'<p class="article-meta">Texto produzido com auxílio de inteligência artificial a partir das fontes indicadas.</p>':''}</article>`;
+  const content=`<article id="article-view" class="wrap article-view"><a class="back-link" href="/localidade/${item.localidade in LOCALS?item.localidade:'regiao'}/">${esc(label)}</a><h1>${esc(item.title)}</h1><p class="article-summary">${esc(item.summary)}</p><p class="article-meta">${esc(item.author||'Redação Tome Nota')} · <time datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time></p><img class="article-cover" src="${esc(photo)}"${responsive(photo,'(max-width: 900px) 100vw, 860px')} alt="${esc(item.title)}" width="1600" height="900" fetchpriority="high"><div class="article-body">${paragraphs}</div>${sources?'<h2>Fontes consultadas</h2><ul>'+sources+'</ul>':''}${item.gerada_por==='ia'?'<p class="article-meta">Texto produzido com auxílio de inteligência artificial a partir das fontes indicadas.</p>':''}</article>`;
   page=page.replace(/<article id="article-view"[\s\S]*?<\/article>/,content).replace(/<script src="\/app.js" defer><\/script>\n?/,'');
   const schema=[{'@context':'https://schema.org','@type':'NewsArticle',headline:item.title,description:item.summary,image:[photo],datePublished:item.published_at,dateModified:item.updated_at,
     author:{'@type':'Organization',name:item.author||'Redação Tome Nota'},publisher:{'@type':'Organization',name:item.publisher||'Tome Nota News',logo:{'@type':'ImageObject',url:absolute('/assets/images/og-tome-nota.png',config.siteUrl)}},mainEntityOfPage:{'@type':'WebPage','@id':url}},
     {'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:[{'@type':'ListItem',position:1,name:'Início',item:config.siteUrl+'/'},{'@type':'ListItem',position:2,name:label,item:absolute('/localidade/'+(item.localidade in LOCALS?item.localidade:'regiao')+'/',config.siteUrl)},{'@type':'ListItem',position:3,name:item.title,item:url}]}];
-  return page.replace('</head>',`<meta name="tnn-agent-revision" content="${Number(item.agent_revision)||0}">\n<script type="application/ld+json">${json(schema)}</script>\n</head>`);
+  return placeAnalytics(placeAds(page,config.adSlots),config.gaId).replace('</head>',`<meta name="tnn-agent-revision" content="${Number(item.agent_revision)||0}">\n<script type="application/ld+json">${json(schema)}</script>\n</head>`);
 }
-function card(item,config){return `<article class="news-card"><a class="card-link" href="/noticia/${esc(item.slug)}/"><img class="card-image" src="${esc(safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl)))}" alt="${esc(item.title)}" width="800" height="450" loading="lazy"><div class="card-body"><time class="card-meta" datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time><h3 class="card-title">${esc(item.title)}</h3><p class="card-summary">${esc(item.summary)}</p></div></a></article>`;}
+function card(item,config){const photo=safePhoto(item.cover_url,absolute('/assets/images/og-tome-nota.png',config.siteUrl));return `<article class="news-card"><a class="card-link" href="/noticia/${esc(item.slug)}/"><img class="card-image" src="${esc(photo)}"${responsive(photo,'(max-width: 700px) 100vw, 400px')} alt="${esc(item.title)}" width="800" height="450" loading="lazy"><div class="card-body"><time class="card-meta" datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time><h3 class="card-title">${esc(item.title)}</h3><p class="card-summary">${esc(item.summary)}</p></div></a></article>`;}
 export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
   const context={window:{}};
   vm.runInNewContext(await fs.readFile(path.join(ROOT,'public-site/assets/js/config.js'),'utf8'),context,{timeout:1000});
@@ -47,6 +67,9 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
   config.adClient=process.env.ADSENSE_CLIENT||config.adClient;
   if(!/^ca-pub-\d{16}$/.test(config.adClient))throw Error('Publisher AdSense inválido.');
   config.contactEmail=process.env.CONTACT_EMAIL||config.contactEmail||'';
+  config.adSlots=adSlots();
+  config.gaId=(process.env.GA_MEASUREMENT_ID||'').trim();
+  if(config.gaId && !/^G-[A-Z0-9]{6,12}$/.test(config.gaId))throw Error('GA_MEASUREMENT_ID inválido: use o ID de medição que começa com G-.');
   let items=[];
   if(fixture)items=JSON.parse(await fs.readFile(fixture,'utf8'));
   else {
@@ -75,7 +98,7 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
     html=html.replaceAll(context.window.TNN_CONFIG.siteUrl,config.siteUrl).replaceAll(context.window.TNN_CONFIG.adClient,config.adClient);
     html=html.replace('</header>','</header>'+nav()).replace('</head>','<link rel="stylesheet" href="/assets/localidades.css">\n</head>');
     if(name==='index.html')html=html.replace('<div id="news-grid" class="news-grid"></div>','<div id="news-grid" class="news-grid">'+items.slice(0,24).map(i=>card(i,config)).join('')+'</div>');
-    await fs.writeFile(file,html);
+    await fs.writeFile(file,placeAnalytics(placeAds(html,config.adSlots),config.gaId));
     if(name!=='noticia.html')sitemap.push({url:absolute(name==='index.html'?'/':'/'+name,config.siteUrl)});
   }
   for(const item of items){const directory=path.join(out,'noticia',item.slug);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'index.html'),articleHTML(template,item,config));sitemap.push({url:absolute('/noticia/'+item.slug+'/',config.siteUrl),lastmod:item.updated_at});}
@@ -83,7 +106,7 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
     const news=items.filter(i=>i.localidade===slug);let html=head(template,{title:'Notícias de '+label+' | Tome Nota News',description:'Acompanhe as notícias de '+label+' no Tome Nota News.',url:absolute('/localidade/'+slug+'/',config.siteUrl),image:absolute('/assets/images/og-tome-nota.png',config.siteUrl)});
     html=html.replace('<html lang="pt-BR">',`<html lang="pt-BR" data-localidade="${slug}">`);
     html=html.replace(/<article id="article-view"[\s\S]*?<\/article>/,`<section class="wrap news-section"><h1>Notícias de ${esc(label)}</h1><div class="filters"><label class="search-box"><span class="sr-only">Buscar nesta localidade</span><input id="search" maxlength="100" type="search" placeholder="Buscar nesta localidade..."></label></div><p id="result-count" aria-live="polite">${Math.min(24,news.length)} de ${news.length} matérias</p><div id="status-message" role="status"></div><div id="news-grid" class="news-grid">${news.slice(0,24).map(i=>card(i,config)).join('')}</div><button id="load-more" class="primary-button" hidden>Carregar mais notícias</button></section>`);
-    const directory=path.join(out,'localidade',slug);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'index.html'),html);
+    const directory=path.join(out,'localidade',slug);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'index.html'),placeAnalytics(placeAds(html,config.adSlots),config.gaId));
     sitemap.push({url:absolute('/localidade/'+slug+'/',config.siteUrl),lastmod:news[0]?.updated_at});
   }
   await fs.writeFile(path.join(out,'sitemap.xml'),'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+sitemap.map(i=>`<url><loc>${esc(i.url)}</loc>${i.lastmod?'<lastmod>'+esc(i.lastmod)+'</lastmod>':''}</url>`).join('')+'</urlset>\n');
