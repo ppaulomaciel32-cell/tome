@@ -33,6 +33,11 @@ class DiscoveryTests(unittest.TestCase):
         with patch.dict(os.environ,{'TAVILY_API_KEY':'test-only'}):self.assertEqual(self.collector.search('Pecém',self.now),[])
         stopped=Collector(dataclasses.replace(self.config,tavily_daily=0),self.state,self.public,self.net)
         self.assertEqual(stopped.search('Pecém',self.now),[]);self.assertEqual(self.net.json.call_count,1)
+    def test_two_subdomains_do_not_become_two_independent_publishers(self):
+        self.net.json.return_value={'results':[{**self.row,'url':'https://noticias.portal.com.br/a'},{**self.row,'url':'https://www.portal.com.br/b'}]}
+        with patch.dict(os.environ,{'TAVILY_API_KEY':'test-only'}):rows=self.collector.search('Pecém',self.now)
+        self.assertEqual(rows[0]['publisher_group'],rows[1]['publisher_group'])
+        self.assertEqual(len(self.collector.independent(rows)),1)
     def test_monitor_baselines_and_keeps_changed_official_document_without_fictional_url(self):
         with tempfile.NamedTemporaryFile(mode='w',suffix='.json') as file:
             json.dump([{'approved':True,'name':'Prefeitura de Paracuru','url':'https://paracuru.ce.gov.br/licitacoes'}],file);file.flush()

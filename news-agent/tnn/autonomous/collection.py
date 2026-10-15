@@ -51,6 +51,12 @@ def public_office(hostname):
     # Domínios reservados a órgãos públicos brasileiros; registro restrito pelo Registro.br.
     return isinstance(hostname,str) and bool(re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+',hostname)) and hostname.endswith(OFFICE)
 
+def publisher_domain(host):
+    """Agrupa subdomínios conservadoramente: dois endereços não são duas redações."""
+    parts=host.lower().removeprefix('www.').split('.')
+    shared={'com.br','org.br','net.br','gov.br','leg.br','mp.br','jus.br','def.br','co.uk','com.au','com.ar'}
+    return '.'.join(parts[-3:] if '.'.join(parts[-2:]) in shared else parts[-2:])
+
 def page_date(html):
     info=PageInfo();info.feed(html)
     if date(info.published):return info
@@ -249,7 +255,8 @@ class Collector:
             if not fresh(published,now,168):continue
             title=clean(str(item.get('title','')))[:500];content=clean(item.get('raw_content') or item.get('content'))[:12000]
             if len(title)<3 or len(content)<160:continue
-            group=source.publisher_group if source else re.sub(r'[^a-z0-9]+','-',host.removeprefix('www.'))[:80].strip('-')
+            related=next((s for s in self.config.sources if any(publisher_domain(d)==publisher_domain(host) for d in s.domains)),None)
+            group=related.publisher_group if related else re.sub(r'[^a-z0-9]+','-',publisher_domain(host))[:80].strip('-')
             rows.append({'id':source.id if source else 'web-'+digest(host)[:12],
                 'name':source.name if source else host,'publisher_group':group,'title':title,'url':canonical(url),
                 'content':content,'published_date':date(published).isoformat(),

@@ -162,7 +162,7 @@ do site estático. As páginas legais e o consentimento continuam preservados.
 
 ## Verificação executada
 
-- Python: **89 testes passaram**; arte PNG validada em 1080×1920 e abaixo de 1,5 MB.
+- Python: **90 testes passaram**; arte PNG validada em 1080×1920 e abaixo de 1,5 MB.
 - Node, com Postgres local PGlite: **215 passaram, 3 ignorados e 3 bloqueados**
   por falta do executável Chromium neste ambiente. Não chamar a suíte inteira
   de aprovada: os testes de navegador de drafts/painel/WhatsApp ainda precisam
