@@ -39,7 +39,7 @@ class Pipeline:
             self.bridge.call('/cycle-status',{'state':'running','stage':'coleta','cycleId':cycle,'pending':len(context['drafts'])})
             rows=self.retry(lambda:self.collector.feeds(self.now()))
             known=context.get('seen',[])
-            candidates=[r for r in rows if local_score(r['title'],r['content'])>0 and not any(
+            candidates=[r for r in rows if local_score(r['title'],r['content'])>=6 and not any(
                 s['hash'] in (digest(r['url']),digest(normalize(r['title']))) or similar(r['title'],s['titulo'],.75) for s in known)]
             if not candidates: self.state.reset('coleta');status='skipped';code='no_candidates';return {'status':code}
             # Uma pauta fraca não pode travar o ciclo: tenta as próximas, sem avisar o grupo a cada rodada.

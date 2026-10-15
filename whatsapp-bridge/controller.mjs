@@ -32,7 +32,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   let socket = null, generation = 0, state = config.configured ? 'idle' : 'awaiting_configuration';
   if(vault.get('blocked'))state='needs_attention';
   let qr = null, pairingCode = null, pairingExpires = 0, retryTimer, attempt = 0, stopped = false, chain = Promise.resolve();
-  let connectingReady = false, connectedAt = null, lastError = null, pending = 0, groupCache = null;
+  let connectingReady = false, connectedAt = null, lastError = null, pending = 0, groupCache = null, softFailures = 0;
   const run = task => {if (pending >= 100) return Promise.reject(new BridgeError(429,'busy','A conexão está ocupada. Aguarde.')); pending++; const p=chain.then(task); chain=p.catch(()=>{}).finally(()=>pending--); return p;};
   const clearPairing = ()=>{qr=null;pairingCode=null;pairingExpires=0;};
   const record = code => {const events=vault.get('events',[]); events.push({at:new Date(now()).toISOString(),code});vault.put('events',events.slice(-50));lastError=code;};
@@ -200,11 +200,17 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         if(update.connection==='open') {
           const own=identityJid(socket.user?.id);
           if(own!==identityJid(config.number+'@s.whatsapp.net')) {state='wrong_number';vault.put('blocked','wrong_number');closeSocket();record('wrong_number');return;}
-          state='connected';clearPairing();attempt=0;connectedAt=new Date(now()).toISOString();lastError=null;record('connected');lastError=null;
+          state='connected';clearPairing();attempt=0;softFailures=0;connectedAt=new Date(now()).toISOString();lastError=null;record('connected');lastError=null;
         }
         if(update.connection==='close') {
           const code=update.lastDisconnect?.error?.output?.statusCode;
-          closeSocket(); record([401,403,411,440,500].includes(code)?'session_attention':'disconnected');
+          closeSocket();
+          // 440 (sessão substituída) e 500 (sessão ruim) às vezes passam sozinhos: duas novas tentativas espaçadas antes de bloquear.
+          if([440,500].includes(code) && softFailures<2){
+            softFailures++;record('session_retry_'+code);state='reconnecting';
+            retryTimer=schedule(()=>{retryTimer=null;safeEvent(open);},softFailures===1?60000:300000);retryTimer?.unref?.();return;
+          }
+          record([401,403,411,440,500].includes(code)?'session_attention_'+code:'disconnected');
           if([401,403,411,440,500].includes(code)){state='needs_attention';vault.put('blocked','session_attention');return;}
           if(++attempt>8){state='needs_attention';record('reconnect_exhausted');vault.put('blocked','reconnect_exhausted');return;}
           state='reconnecting';const delay=code===515 ? 1000 : Math.min(300000,1000*2**(attempt-1));

@@ -92,6 +92,10 @@ class AutonomousTests(unittest.TestCase):
         self.collector.enrich.side_effect=lambda row,rows,now:ROWS[:1] if row['url']==ROWS[0]['url'] else copy.deepcopy(ROWS)
         self.assertEqual(self.pipeline.once()['status'],'draft_created');self.assertEqual(self.collector.enrich.call_count,2)
         self.assertEqual(self.writer.write.call_args.args[0],other['title'])
+    def test_automatic_cycle_ignores_stories_without_a_local_mention(self):
+        far={**ROWS[0],'title':'Ministério Público do Ceará empossa promotora em Fortaleza','content':'Segundo o órgão, a posse ocorreu em Fortaleza. '*10,'url':'https://a.example/fortaleza'}
+        self.collector.feeds.return_value=[far]
+        self.assertEqual(self.pipeline.once()['status'],'no_candidates');self.collector.enrich.assert_not_called();self.writer.write.assert_not_called()
     def test_single_official_source_becomes_a_draft_marked_as_single(self):
         official=[{**ROWS[0],'official':True}];self.collector.enrich.return_value=copy.deepcopy(official)
         self.writer.write.return_value={**article(),'fontes':copy.deepcopy(official)}

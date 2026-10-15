@@ -261,6 +261,14 @@ test('reconexão usa backoff, restartRequired reconecta e logout não apaga sess
   await f.update({connection:'close',lastDisconnect:{error:{output:{statusCode:515}}}});assert.equal(f.timers.at(-1).ms,1000);f.timers.at(-1).fn();await f.c.idle();
   await f.update({connection:'close',lastDisconnect:{error:{output:{statusCode:401}}}});assert.equal(f.c.status().state,'needs_attention');assert.ok(f.vault.get('auth:creds'));assert.equal(f.c.pairing().qr,null);
 });
+test('sessão substituída ou ruim tenta de novo duas vezes antes de pedir atenção; logout bloqueia na hora',async t=>{
+  const f=await fixture(t);await f.c.start({confirmDedicated:true});
+  for(const [i,ms] of [[1,60000],[2,300000]].entries()){await f.update({connection:'close',lastDisconnect:{error:{output:{statusCode:i?500:440}}}});assert.equal(f.c.status().state,'reconnecting');assert.equal(f.timers.at(-1).ms,ms[1]);f.timers.at(-1).fn();await f.c.idle();}
+  assert.deepEqual(f.c.status().events.slice(-2).map(e=>e.code),['session_retry_440','session_retry_500']);
+  await f.update({connection:'close',lastDisconnect:{error:{output:{statusCode:440}}}});assert.equal(f.c.status().state,'needs_attention');assert.equal(f.c.status().lastError,'session_attention_440');
+  const g=await fixture(t);await g.c.start({confirmDedicated:true});await g.update({connection:'open'});
+  await g.update({connection:'close',lastDisconnect:{error:{output:{statusCode:401}}}});assert.equal(g.c.status().state,'needs_attention');assert.equal(g.vault.get('blocked'),'session_attention');
+});
 test('sessão registrada retoma sem pedir novo QR',async t=>{
   const f=await fixture(t);f.auth.saveCreds({registered:true});await f.c.resume();assert.equal(f.connections,1);await f.update({connection:'open'});assert.equal(f.c.status().connected,true);assert.equal(f.c.pairing().qr,null);
 });
