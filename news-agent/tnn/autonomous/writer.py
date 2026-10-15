@@ -35,8 +35,14 @@ class Writer:
         mode=self.mode(sources)
         # O modelo recebe só o necessário; marcações internas não entram no prompt.
         public=[{k:s[k] for k in ('id','name','title','url','content','published_date')} for s in sources]
-        raw=self.gemini.generate(Path(__file__).with_name('editorial.txt').read_text(),{'modo':mode,**request,'fontes':public},self.schema)
+        investigation=any(s.get('investigative') for s in sources)
+        prompt=Path(__file__).with_name('editorial.txt').read_text()
+        if investigation:
+            prompt+='\nPAUTA A APURAR: título começa com "A apurar:". Separe no corpo "O que está documentado" e "O que falta confirmar". Não faça acusações nem conclua irregularidade a partir de edital, contrato ou mudança de página. Cada fato deve apontar documento e órgão. O que falta confirmar deve ser pergunta, nunca hipótese apresentada como fato.'
+        raw=self.gemini.generate(prompt,{'modo':mode,**request,'fontes':public},self.schema)
         article=parse_article(raw,sources)
+        if investigation and (not article['titulo'].lower().startswith('a apurar:') or not all(s in article['texto'].lower() for s in ('o que está documentado','o que falta confirmar'))):
+            raise AgentError('Pauta investigativa precisa separar documentos e perguntas ainda sem confirmação.')
         # Fonte única rende texto mais curto: melhor curto do que preenchido com suposição.
         lower=300 if mode=='multiplas_fontes' else 150
         if not lower<=len(article['texto'].split())<=500: raise AgentError('A redação ficou fora do tamanho permitido, sem preencher lacunas com suposições.')
@@ -55,6 +61,30 @@ class Writer:
         except (KeyError,TypeError,ValueError,StopIteration): raise AgentError('A redação não trouxe evidências verificáveis para todos os trechos.') from None
         article.pop('capa_hint',None)
         return {**article,'evidencias':evidence,'fontes':sources}
+    @staticmethod
+    def direct(old,fields):
+        """Texto exato do editor, sem LLM. Gera nova prévia e exige outra aprovação."""
+        from .collection import words
+        if not isinstance(fields,dict):raise AgentError('Texto de edição inválido.')
+        sizes={'titulo':(3,300),'resumo':(10,500),'texto':(100,20000)}
+        for key,(lower,upper) in sizes.items():
+            value=fields.get(key)
+            if not isinstance(value,str) or not lower<=len(value.strip())<=upper or re.search(r'[<>\x00-\x08\x0b-\x1f]',value):raise AgentError('Confira os campos do texto.')
+        if fields.get('localidade') not in ('sao-goncalo','pecem','taiba','croata','paracuru','regiao'):raise AgentError('Localidade inválida.')
+        paragraphs=re.split(r'\n\s*\n',fields['texto'].strip())
+        lower=150 if len(old['fontes'])==1 else 300
+        if not 4<=len(paragraphs)<=12 or not lower<=len(fields['texto'].split())<=500:raise AgentError('Mantenha 4 a 12 parágrafos e o tamanho editorial.')
+        source_text=' '.join(s['title']+' '+s['content'] for s in old['fontes'])
+        numbers=lambda x:set(re.findall(r'\d+(?:[.,:/-]\d+)*',x))
+        if numbers(' '.join(fields[k] for k in sizes))-numbers(source_text):raise AgentError('Número ou data sem suporte nas fontes.')
+        evidence=[]
+        chunks=[(s['id'],part.strip()) for s in old['fontes'] for part in re.split(r'(?<=[.!?;])\s+',s['content']+' '+s['title']) if 20<=len(part.strip())<=500]
+        if not chunks:raise AgentError('Confira as fontes antes de editar.')
+        for key,value in [('titulo',fields['titulo']),('resumo',fields['resumo'])]+[('paragrafo_'+str(i+1),p) for i,p in enumerate(paragraphs)]:
+            source,excerpt=max(chunks,key=lambda pair:len(words(pair[1])&words(value)))
+            evidence.append({'campo':key,'fonte_id':source,'trecho':excerpt})
+        return {**{k:fields[k].strip() for k in (*sizes,'localidade')},'slug':slugify(fields['titulo']),
+            'fontes':old['fontes'],'evidencias':evidence}
     @staticmethod
     def retitle(old,title):
         """Manchete escrita pelo editor: sem IA, mas sem número que as fontes não tragam."""

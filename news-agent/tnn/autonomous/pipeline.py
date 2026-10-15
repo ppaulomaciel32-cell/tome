@@ -1,6 +1,7 @@
 """Somente pesquisa -> rascunho privado -> prévia. Não contém ingestão/publicação."""
 import time
 import uuid
+import os
 from ..core import AgentError,normalize
 from .collection import digest,similar,local_score,accepted
 from .store import QuotaLimit
@@ -37,10 +38,18 @@ class Pipeline:
                 return {'status':start.get('reason','cycle_exists')}
             begun=True
             self.bridge.call('/cycle-status',{'state':'running','stage':'coleta','cycleId':cycle,'pending':len(context['drafts'])})
-            rows=self.retry(lambda:self.collector.feeds(self.now()))
+            try:rows=self.retry(lambda:self.collector.feeds(self.now()))
+            except AgentError:
+                if not c.tavily_free and not os.getenv('TNN_MONITORS_FILE'):raise
+                rows=[]
+            if c.tavily_free:
+                try:rows+=self.collector.discover(self.now())
+                except AgentError:pass  # Sem Tavily, os feeds continuam funcionando.
+            if os.getenv('TNN_MONITORS_FILE'):
+                rows+=self.collector.monitors(self.now())
             known=context.get('seen',[])
             candidates=[r for r in rows if local_score(r['title'],r['content'])>=6 and not any(
-                s['hash'] in (digest(r['url']),digest(normalize(r['title']))) or similar(r['title'],s['titulo'],.75) for s in known)]
+                s['hash'] in (digest(r['url']+r.get('observed_hash','')),digest(normalize(r['title']))) or (not r.get('observed_hash') and similar(r['title'],s['titulo'],.75)) for s in known)]
             if not candidates: self.state.reset('coleta');status='skipped';code='no_candidates';return {'status':code}
             # Uma pauta fraca não pode travar o ciclo: tenta as próximas, sem avisar o grupo a cada rodada.
             candidate=sources=None
@@ -50,8 +59,8 @@ class Pipeline:
             if not sources:
                 self.state.reset('coleta')
                 status='skipped';code='weak_sources';return {'status':code}
-            seen=[{'hash':digest(normalize(candidate['title'])),'tipo':'titulo','titulo':candidate['title']}]+[
-                {'hash':digest(s['url']),'tipo':'url','titulo':s['title']} for s in sources]
+            seen=[{'hash':digest(normalize(candidate['title'])+candidate.get('observed_hash','')),'tipo':'titulo','titulo':candidate['title']}]+[
+                {'hash':digest(s['url']+s.get('observed_hash','')),'tipo':'url','titulo':s['title']} for s in sources]
             if self.retry(lambda:self.drafts.call({'action':'seen','hashes':[s['hash'] for s in seen]})).get('seen'):
                 self.state.reset('coleta')
                 status='skipped';code='already_seen';return {'status':code}
@@ -74,6 +83,7 @@ class Pipeline:
             self.report_stage(cycle,stage,len(context['drafts'])+1)
             self.bridge.call('/preview',{'id':draft_id,'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],
                 'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources],
+                **({'investigative':True} if candidate.get('investigative') else {}),
                 **({'single':'official'} if len(sources)==1 else {}),
                 **({'cover':cover,'coverUrl':draft['capa_url']} if cover else {})})
             self.state.reset('previa');return {'status':'draft_created','id':draft_id}

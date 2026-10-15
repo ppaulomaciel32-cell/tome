@@ -9,6 +9,9 @@ import socket
 import ssl
 import time
 import unicodedata
+import os
+import difflib
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
@@ -220,6 +223,90 @@ class Collector:
             except AgentError: errors+=1
         if errors==len(self.config.sources): raise AgentError('Nenhuma fonte aprovada respondeu.',True)
         return sorted(result,key=lambda s:(local_score(s['title'],s['content']),s['published_date']),reverse=True)
+    def search(self,query,now,topic='news'):
+        """Descoberta aberta pelo Tavily; nunca faz download direto de domínio descoberto."""
+        if not self.config.tavily_free or not self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):return []
+        result=self.net.json('https://api.tavily.com/search',{'query':query[:500],'topic':topic,'search_depth':'basic',
+            'max_results':5,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
+            {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
+        rows=[]
+        for item in result.get('results',[])[:5]:
+            url=item.get('url','')
+            try:
+                p=urlsplit(url);host=p.hostname
+                if not host or not allowed(url,(host,)) or p.fragment or len(url)>1500:continue
+                # Sem DNS/download aqui: só texto retornado pelo provedor fixo.
+                if host in ('localhost','localhost.localdomain') or not re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+',host):continue
+                try:
+                    if not ipaddress.ip_address(host).is_global:continue
+                    continue  # IP literal não identifica um veículo ou órgão.
+                except ValueError:pass
+            except (ValueError,TypeError):continue
+            source=next((s for s in self.config.sources if host in s.domains),None)
+            published=item.get('published_date')
+            # Datas ausentes não viram "publicado hoje"; busca geral só dá pistas,
+            # com data de consulta explícita e sempre em revisão humana.
+            if not fresh(published,now,168):continue
+            title=clean(str(item.get('title','')))[:500];content=clean(item.get('raw_content') or item.get('content'))[:12000]
+            if len(title)<3 or len(content)<160:continue
+            group=source.publisher_group if source else re.sub(r'[^a-z0-9]+','-',host.removeprefix('www.'))[:80].strip('-')
+            rows.append({'id':source.id if source else 'web-'+digest(host)[:12],
+                'name':source.name if source else host,'publisher_group':group,'title':title,'url':canonical(url),
+                'content':content,'published_date':date(published).isoformat(),
+                **({'official':True} if (source.official if source else public_office(host)) else {})})
+        return rows
+    def discover(self,now):
+        # Alterna localidades e apuração pública, sem 72 buscas pagas por dia.
+        places=['São Gonçalo do Amarante Ceará','Pecém Ceará','Taíba Ceará','Croatá São Gonçalo do Amarante','Paracuru Ceará']
+        slot=int(now)//self.config.interval
+        investigative=slot%3==0
+        query=places[slot%len(places)]+(' licitação contrato edital diário oficial MPCE TCE' if investigative else ' notícias')
+        rows=self.search(query,now)
+        if investigative:
+            rows=[dict(r,investigative=True) for r in rows if r.get('official')]
+        return rows
+    def monitors(self,now):
+        """Monitor próprio do jornal: só páginas oficiais previamente aprovadas."""
+        path=os.getenv('TNN_MONITORS_FILE','')
+        if not path:return []
+        try:items=json.loads(Path(path).read_text())
+        except (OSError,ValueError):return []
+        if not isinstance(items,list) or len(items)>20:return []
+        rows=[]
+        for item in items:
+            if not isinstance(item,dict) or item.get('approved') is not True:continue
+            url=item.get('url','');host=urlsplit(url).hostname
+            if not public_office(host) or not allowed(url,(host,)) or len(url)>1500:continue
+            try:
+                body=clean(self.public.get(url,(host,)).decode('utf-8',errors='replace'))[:60000]
+                key='tnn:drafts:v1:monitor:'+digest(url);old=self.quota.client.get(key)
+                if isinstance(old,bytes):old=old.decode()
+                if not old:
+                    self.quota.client.set(key,body);continue  # Primeira leitura é referência, não notícia nova.
+                if body==old:continue
+                additions=' '.join(body[b1:b2] for op,_,_,b1,b2 in difflib.SequenceMatcher(None,old,body,autojunk=False).get_opcodes() if op in ('insert','replace'))
+                if len(additions)<160:continue
+                title='A apurar: atualização em '+str(item.get('name',host))[:180]
+                keywords=('licita','edital','contrat','diário oficial','transparência','pregão')
+                if not any(word in additions.lower() for word in keywords):
+                    self.quota.client.set(key,body);continue
+                # Snapshot só avança após guardar um candidato durável. O hash do
+                # conteúdo alterado evita repetir a mesma atualização nos ciclos.
+                changed=digest(additions)
+                candidate={'id':'monitor-'+digest(url)[:12],'name':str(item.get('name',host))[:100],
+                    'publisher_group':re.sub(r'[^a-z0-9]+','-',host)[:80].strip('-'),'title':title,
+                    'url':canonical(url), 'content':additions[:12000],'observed_hash':changed,
+                    'published_date':datetime.fromtimestamp(now,timezone.utc).isoformat(),'official':True,'investigative':True}
+                # Data acima é a consulta do monitor, não a data do fato.
+                candidate['content']='Mudança observada pelo monitor; a data do fato exige conferência no documento. '+candidate['content']
+                self.quota.client.set(key+':'+changed+':candidate',json.dumps(candidate),ex=3*86400)
+                self.quota.client.set(key,body)
+            except (AgentError,OSError,ValueError):continue
+        # Mantém alterações enquanto a fila estiver cheia ou a rede indisponível.
+        for key in list(self.quota.client.scan_iter(match='tnn:drafts:v1:monitor:*:candidate',count=20))[:20]:
+            try:rows.append(json.loads(self.quota.client.get(key)))
+            except (TypeError,ValueError):pass
+        return rows
     def manual(self,text,now):
         # Texto curto do WhatsApp é uma PAUTA, não prova de um acontecimento.
         try: rows=self.feeds(now)
@@ -246,23 +333,9 @@ class Collector:
                     'url':canonical(url),'content':clean(html)[:12000],'published_date':date(info.published).isoformat() if date(info.published) else stamp,
                     **({'official':True} if (source.official if source else True) else {})})
             except AgentError:continue
-        if self.config.tavily_free and len(self.independent(matches))<2 and self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):
-            domains=sorted({d for s in self.config.sources for d in s.domains})
-            try:
-                result=self.net.json('https://api.tavily.com/search',{'query':query+' Ceará','topic':'news','search_depth':'basic',
-                    'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
-                    {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
-            except AgentError: result={}
-            for row in result.get('results',[])[:5]:
-                source=next((s for s in self.config.sources if allowed(row.get('url'),s.domains)),None)
-                # Pauta manual pode tratar de notícia da semana; a data real segue no texto.
-                if not source or not fresh(row.get('published_date'),now,168):continue
-                content=clean(row.get('raw_content') or row.get('content'))[:12000]
-                title=str(row.get('title',''))[:500]
-                if len(title)<3 or not similar(query,title,.45):continue
-                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':title,
-                    'url':canonical(row['url']),'content':content,'published_date':date(row['published_date']).isoformat(),
-                    **({'official':True} if source.official else {})})
+        if self.config.tavily_free and len(self.independent(matches))<2:
+            try:matches.extend(r for r in self.search(query+' Ceará',now) if similar(query,r['title'],.45))
+            except AgentError:pass
         found=self.independent(matches)[:5]
         if accepted(found):return found
         # Sem fonte suficiente na rede, o texto colado pelo editor é o material de base.
@@ -271,21 +344,14 @@ class Collector:
     def enrich(self,candidate,rows,now):
         matches=[candidate]+[r for r in rows if r['url']!=candidate['url'] and similar(candidate['title'],r['title'])]
         sources=self.independent(matches)
-        if len(sources)<2 and self.config.tavily_free and self.quota.reserve('tavily',self.config.tavily_daily,self.config.tavily_monthly):
-            domains=sorted({d for s in self.config.sources for d in s.domains})
-            result=self.net.json('https://api.tavily.com/search',{'query':candidate['title']+' Ceará','topic':'news','search_depth':'basic',
-                'max_results':5,'include_domains':domains,'include_answer':False,'include_images':False,'include_raw_content':'text','auto_parameters':False},
-                {'Authorization':'Bearer '+required('TAVILY_API_KEY')},timeout=15,max_bytes=150000)
-            for item in result.get('results',[])[:5]:
-                source=next((s for s in self.config.sources if allowed(item.get('url'),s.domains)),None)
-                if not source or not fresh(item.get('published_date'),now) or not similar(candidate['title'],str(item.get('title',''))): continue
-                matches.append({'id':source.id,'name':source.name,'publisher_group':source.publisher_group,'title':str(item['title'])[:500],
-                    'url':canonical(item['url']),'content':clean(item.get('raw_content') or item.get('content'))[:12000],
-                    'published_date':date(item['published_date']).isoformat(),**({'official':True} if source.official else {})})
+        if len(sources)<2 and self.config.tavily_free:
+            try:matches.extend(r for r in self.search(candidate['title']+' Ceará',now) if similar(candidate['title'],r['title']))
+            except AgentError:pass
         # Feed curto ganha o texto da página, dentro dos mesmos domínios aprovados.
         for row in matches[:10]:
             if len(row['content'])>=800: continue
-            source=next(s for s in self.config.sources if s.id==row['id'])
+            source=next((s for s in self.config.sources if s.id==row['id']),None)
+            if not source:continue
             try: row['content']=clean(self.public.get(row['url'],source.domains).decode('utf-8',errors='replace'))[:12000]
             except AgentError: pass
         return self.independent(matches)[:5]
