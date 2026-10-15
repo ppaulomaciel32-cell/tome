@@ -33,6 +33,7 @@ export function articleHTML(template,item,config) {
   const sources=(item.fontes||[]).filter(s=>{try{return validUrl(s.url);}catch{return false;}}).map(s=>`<li><a href="${esc(s.url)}" rel="noopener noreferrer">${esc(s.titulo)}</a></li>`).join('');
   const content=`<article id="article-view" class="wrap article-view"><a class="back-link" href="/localidade/${item.localidade in LOCALS?item.localidade:'regiao'}/">${esc(label)}</a><h1>${esc(item.title)}</h1><p class="article-summary">${esc(item.summary)}</p><p class="article-meta">${esc(item.author||'Redação Tome Nota')} · <time datetime="${esc(item.published_at)}">${esc(date(item.published_at))}</time></p><img class="article-cover" src="${esc(photo)}"${responsive(photo,'(max-width: 900px) 100vw, 860px')} alt="${esc(item.title)}" width="1600" height="900" fetchpriority="high"><div class="article-body">${paragraphs}</div>${sources?'<h2>Fontes consultadas</h2><ul>'+sources+'</ul>':''}${item.gerada_por==='ia'?'<p class="article-meta">Texto produzido com auxílio de inteligência artificial a partir das fontes indicadas.</p>':''}</article>`;
   page=page.replace(/<article id="article-view"[\s\S]*?<\/article>/,content).replace(/<script src="\/app.js" defer><\/script>\n?/,'');
+  if(item.cover_credit)page=page.replace('<div class="article-body">',`<p class="article-meta article-photo-credit">Foto: ${esc(item.cover_credit)}</p><div class="article-body">`);
   const schema=[{'@context':'https://schema.org','@type':'NewsArticle',headline:item.title,description:item.summary,image:[photo],datePublished:item.published_at,dateModified:item.updated_at,
     author:{'@type':'Organization',name:item.author||'Redação Tome Nota'},publisher:{'@type':'Organization',name:item.publisher||'Tome Nota News',logo:{'@type':'ImageObject',url:absolute('/assets/images/og-tome-nota.png',config.siteUrl)}},mainEntityOfPage:{'@type':'WebPage','@id':url}},
     {'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:[{'@type':'ListItem',position:1,name:'Início',item:config.siteUrl+'/'},{'@type':'ListItem',position:2,name:label,item:absolute('/localidade/'+(item.localidade in LOCALS?item.localidade:'regiao')+'/',config.siteUrl)},{'@type':'ListItem',position:3,name:item.title,item:url}]}];
@@ -62,6 +63,7 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
   if(!/^ca-pub-\d{16}$/.test(config.adClient))throw Error('Publisher AdSense inválido.');
   config.contactEmail=process.env.CONTACT_EMAIL||config.contactEmail||'';
   config.ga4Id=process.env.GA4_MEASUREMENT_ID || '';
+  config.publicRanking=true;
   if(config.ga4Id && !/^G-[A-Z0-9]{6,20}$/.test(config.ga4Id))throw Error('GA4_MEASUREMENT_ID inválido.');
   config.autoAds=process.env.ADSENSE_AUTO_ADS!=='false';
   config.adSlots=Object.fromEntries(['top','middle','end','home'].map(position=>{
@@ -82,6 +84,16 @@ export async function build({fixture,out=path.join(ROOT,'dist-public')}={}) {
     }
   }
   items=items.filter(p=>p.status==='published'&&new Date(p.published_at).valueOf()<=Date.now());
+  if(!fixture && items.length){
+    // Compatível durante a instalação da migration: coluna ausente não derruba o build.
+    const credits=new Map();
+    try{for(let offset=0;offset<50000;offset+=500){
+      const result=await fetch(config.supabaseUrl+'/rest/v1/tomenota_publications?select=id,cover_credit&status=eq.published&order=id.asc&limit=500&offset='+offset,{
+        headers:{apikey:config.supabaseAnonKey,Authorization:'Bearer '+config.supabaseAnonKey},signal:AbortSignal.timeout(15000)});
+      if(!result.ok)break;const page=await result.json();for(const p of page)credits.set(p.id,p.cover_credit);if(page.length<500)break;
+    }}catch{console.warn('Créditos fotográficos indisponíveis nesta compilação.');}
+    items=items.map(p=>({...p,cover_credit:credits.get(p.id)}));
+  }
   for(const item of items) {
     if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(item.slug)||item.slug.length>240||typeof item.body!=='string'||!item.title||!item.summary||!Number.isFinite(new Date(item.updated_at).valueOf()))throw Error('Notícia inválida para o build.');
   }

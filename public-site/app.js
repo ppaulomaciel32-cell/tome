@@ -234,6 +234,12 @@
       const credits = el("p", "card-meta"); credits.append("Por " + item.autor + " · ", time); wrapper.append(credits);
       const cover = imageUrl(item.capa);
       if (cover) { const image = el("img", "article-cover"); image.src = cover; image.alt = item.titulo; image.decoding = "async"; wrapper.append(image); }
+      // Crédito é consultado separadamente para permitir deploy antes da migration.
+      try {
+        const q = new URLSearchParams({select:"cover_credit",slug:"eq."+slug,limit:"1"});
+        const credits = await request(q);
+        if(credits[0]?.cover_credit)wrapper.append(el("p","article-meta article-photo-credit","Foto: "+credits[0].cover_credit));
+      } catch { /* A ausência de crédito antigo não impede a leitura. */ }
       const body = el("div", "article-body");
       const paragraphs = String(item.texto || item.resumo || "").split(/\n\s*\n/).filter(Boolean);
       const middle = Math.max(1, Math.ceil(paragraphs.length / 2));
@@ -295,6 +301,17 @@
   }
   if (document.getElementById("article-view") || slug) renderArticle();
   else {
+    // Ranking agregado real; sem GA4 conectado, não troca Destaques por um rótulo falso.
+    if(config.publicRanking===true)Promise.resolve().then(()=>fetch("https://bot.tomezap.com.br/painel-api/popular",{credentials:"omit",...(typeof AbortSignal!=="undefined"?{signal:AbortSignal.timeout(10000)}:{})}))
+      .then(r=>r.ok?r.json():null).then(data=>{
+        const rows=(data?.configured?data.articles:[]) || [];
+        const list=rows.filter(a=>/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(a.slug) && a.views>0 && (!locality || a.localidade===locality)).slice(0,5);
+        if(list.length<2)return;
+        const block=el("aside","wrap popular-news");block.setAttribute("aria-label","Mais lidas");
+        block.append(el("h2","","Mais lidas nos últimos 30 dias"),el("p","","Visualizações medidas pelo Google Analytics, entre leitores que aceitaram cookies."));
+        const ul=el("ol");list.forEach(a=>{const li=el("li"),link=el("a","",a.title);link.href="/noticia/"+a.slug+"/";li.append(link,el("small",""," · "+Number(a.views)+" visualizações"));ul.append(li);});
+        block.append(ul);grid.closest("section")?.after(block);
+      }).catch(()=>{});
     feed = new window.TNNFeedModel();
     if (window.IntersectionObserver) {
       try { observer = new window.IntersectionObserver(entries => {

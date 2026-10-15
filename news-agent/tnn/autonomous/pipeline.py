@@ -46,7 +46,10 @@ class Pipeline:
                 try:rows+=self.collector.discover(self.now())
                 except AgentError:pass  # Sem Tavily, os feeds continuam funcionando.
             if os.getenv('TNN_MONITORS_FILE'):
-                rows+=self.collector.monitors(self.now())
+                monitored=self.collector.monitors(self.now());rows=monitored+rows
+                for item in monitored[:3]:
+                    try:self.bridge.call('/monitor-alert',{'hash':item['observed_hash'],'title':item['title'],'url':item['url']})
+                    except AgentError:pass
             known=context.get('seen',[])
             candidates=[r for r in rows if local_score(r['title'],r['content'])>=6 and not any(
                 s['hash'] in (digest(r['url']+r.get('observed_hash','')),digest(normalize(r['title']))) or (not r.get('observed_hash') and similar(r['title'],s['titulo'],.75)) for s in known)]

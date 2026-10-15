@@ -151,7 +151,7 @@ def words(value):
 def similar(a,b,threshold=.65):
     left,right=words(a),words(b)
     return bool(left and right and len(left&right)/max(1,min(len(left),len(right)))>=threshold and len(left&right)>=3)
-LOCAL_TERMS=('sao goncalo do amarante','pecem','taiba','paracuru')
+LOCAL_TERMS=('sao goncalo do amarante','pecem','taiba','paracuru','croata do norte')
 def local_score(title,content=''):
     fold=lambda v:unicodedata.normalize('NFKD',v or '').encode('ascii','ignore').decode().lower()
     t=fold(title);local=any(x in t for x in LOCAL_TERMS)
@@ -284,7 +284,7 @@ class Collector:
                 if not old:
                     self.quota.client.set(key,body);continue  # Primeira leitura é referência, não notícia nova.
                 if body==old:continue
-                additions=' '.join(body[b1:b2] for op,_,_,b1,b2 in difflib.SequenceMatcher(None,old,body,autojunk=False).get_opcodes() if op in ('insert','replace'))
+                additions=' '.join(body[b1:b2] for op,_,_,b1,b2 in difflib.SequenceMatcher(None,old,body,autojunk=True).get_opcodes() if op in ('insert','replace'))
                 if len(additions)<160:continue
                 title='A apurar: atualização em '+str(item.get('name',host))[:180]
                 keywords=('licita','edital','contrat','diário oficial','transparência','pregão')
