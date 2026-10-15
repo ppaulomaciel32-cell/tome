@@ -5,9 +5,10 @@ Trabalho na branch `feat/tomezap-robo-whatsapp`. Nenhum deploy foi solicitado.
 
 ## O que o leitor verá
 
-- Abertura mais curta, em azul, com acesso direto às notícias. A home deixa de
-  carregar GSAP, o vídeo e a sequência longa de apresentação; o arquivo
-  `motion.js` continua no repositório, sem alteração.
+- Abertura original preservada: imagens, efeito de revelação, vídeo e sequência
+  animada com GSAP/ScrollTrigger e `motion.js`. Restaurada em 15/10 a pedido do
+  dono, que aprovou esse visual. As melhorias descritas abaixo ficam na lista
+  de notícias e nas localidades; não substituem a apresentação original.
 - Primeiras 24 matérias no HTML gerado, preservadas quando o JavaScript inicia.
   Os próximos lotes têm 12 registros. A consulta usa offset bruto, ordem estável
   e data de corte para não deixar novas publicações deslocarem a paginação.
