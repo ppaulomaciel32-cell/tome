@@ -76,7 +76,7 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
     ['/conectar/connection.css',['text/css; charset=utf-8','connection.css']],
     ['/conectar/connection.mjs',['text/javascript; charset=utf-8','connection.mjs']]
   ].map(([route,[type,file]])=>[route,{type,bytes:readFileSync(new URL('./connect/'+file,import.meta.url))}]));
-  return http.createServer({requestTimeout: 15000, headersTimeout: 10000, maxHeaderSize: 16384}, async (req, res) => {
+  return http.createServer({requestTimeout: 120000, headersTimeout: 10000, maxHeaderSize: 16384}, async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');

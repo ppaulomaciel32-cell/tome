@@ -168,6 +168,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
           }
           const result=manual.add(parsed,receipt,editorHash);
           if(result.job && parsed.kind!=='pauta')previews.decide(parsed.draftId);
+          if(result.job && parsed.kind==='approve' && parsed.notBefore)await sendGroup('Texto aprovado e agendado para '+new Date(parsed.notBefore).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})+' (Fortaleza). Para cancelar: CANCELAR '+previews.number(parsed.draftId)+'.');
           // Só a pauta recebe confirmação imediata; a decisão responde quando terminar.
           if(result.job && parsed.kind==='edit')await sendGroup('Correção recebida para o '+label(parsed.draftId).toLowerCase()+'. Vou refazer e mando a nova prévia.');
           if(result.job && parsed.kind==='pauta')await sendGroup((photo==='saved'?'Pauta e foto recebidas. A foto será a capa.'

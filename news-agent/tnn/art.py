@@ -6,13 +6,14 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
 from .core import AgentError, LOCALS
 
-Image.MAX_IMAGE_PIXELS=24000000
+# O gerador não muda o limite global do processador de capas ao ser importado.
 FONT=os.getenv('FONT_BOLD','/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
 
 def photo_from_bytes(data):
     try:
         with Image.open(io.BytesIO(data)) as im:
             if im.format not in ('JPEG','PNG','WEBP'): raise ValueError('format')
+            if im.width*im.height>24000000:raise ValueError('pixels')
             im.load()
             return ImageOps.exif_transpose(im).convert('RGB')
     except Exception:
@@ -67,6 +68,10 @@ def render_story(article,photo=None,when=None):
     draw.rectangle((64,1624,168,1633),fill='#5eadeb')
     draw.text((64,1670),LOCALS[article['localidade']],font=font(34),fill='#b7d4f1')
     draw.text((64,1730),when.strftime('%d/%m/%Y'),font=font(31),fill='white')
+    if article.get('capa_credito'):
+        credit='Foto: '+' '.join(str(article['capa_credito']).split())[:120]
+        while draw.textlength(credit,font=font(22))>952:credit=credit[:-2]+'…'
+        draw.text((64,1780),credit,font=font(22),fill='#b7d4f1')
     draw.rectangle((0,1810,1080,1920),fill='#154a7b')
     draw.text((64,1840),'TOME NOTA NEWS',font=font(42),fill='white')
     out=io.BytesIO();canvas.save(out,'PNG',optimize=True)

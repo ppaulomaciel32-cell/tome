@@ -1,3 +1,4 @@
+-- Versão registrada pelo apply_migration no Supabase: 20261015151014.
 -- Somente publicações Tome Nota; preserva todas as policies existentes.
 begin;
 alter table public.tomenota_publications add column cover_credit text

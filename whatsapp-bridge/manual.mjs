@@ -29,18 +29,19 @@ export function parseManual(text){
 }
 // Registro das prévias enviadas: dá a cada rascunho um número curto para o grupo.
 export function previewRegistry(vault,now){
-  const list=()=>vault.get('previews',[]).filter(p=>p.at>now()-7*86400000);
+  const list=()=>vault.get('previews',[]).filter(p=>p.at>now()-37*86400000);
   return {
     add(id,titulo){
       const rows=list(),old=rows.find(p=>p.id===id);if(old)return old.n;
       const n=vault.get('previewSeq',0)+1;vault.put('previewSeq',n);
-      vault.put('previews',[...rows,{n,id,titulo:String(titulo).slice(0,90),at:now()}].slice(-60));return n;
+      const held=new Set(vault.get('manual:queue',[]).filter(j=>j.state==='queued' && j.notBefore>now()).map(j=>j.draftId));
+      vault.put('previews',[...rows.filter(p=>held.has(p.id)),...rows.filter(p=>!held.has(p.id)).concat({n,id,titulo:String(titulo).slice(0,90),at:now()}).slice(-60)]);return n;
     },
     number:id=>list().find(p=>p.id===id)?.n ?? null,
     byNumber:n=>list().find(p=>p.n===n) || null,
     open:()=>list().filter(p=>!p.decided && p.at>now()-72*3600000),
     decide(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){row.decided=true;vault.put('previews',rows);}},
-    reopen(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){delete row.decided;vault.put('previews',rows);}}
+    reopen(id){const rows=list(),row=rows.find(p=>p.id===id);if(row){delete row.decided;row.at=now();vault.put('previews',rows);}}
   };
 }
 export function manualQueue(vault,now,fail){

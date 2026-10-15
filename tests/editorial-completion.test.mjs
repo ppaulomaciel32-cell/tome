@@ -57,7 +57,7 @@ test('migration de crédito: somente publicações TNN, copia crédito sem abrir
       create policy published_only on public.tomenota_publications for select to anon using(status='published');
       grant select on public.tomenota_publications to anon;grant select,insert,update on public.tomenota_publications to service_role;
       insert into public.rascunhos values('00000000-0000-4000-8000-000000000001','Maria Silva');`);
-    await db.exec(await readFile(new URL('../supabase/migrations/20261015150031_editorial_photo_credit.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/20261015151014_editorial_photo_credit.sql',import.meta.url),'utf8'));
     await db.exec('set role service_role');
     await db.exec("insert into public.tomenota_publications(id,agent_job_id,cover_url,status) values('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','https://example.com/foto.jpg','published')");
     await db.exec('reset role;set role anon');
