@@ -298,6 +298,36 @@ async function photoFixture(t){
   const send=async(inner,id=randomBytes(5).toString('hex'))=>{f.callbacks.onMessages({type:'notify',messages:[{key:{remoteJid:group,participant:'100001@lid',id,fromMe:false},messageTimestamp:Date.now()/1000,message:inner}]});await f.c.idle();};
   return {f,store,directory,send};
 }
+test('painel: foto passa pela mídia privada, exige crédito e só cria revisão',async t=>{
+  const {f}=await photoFixture(t),preview=draftPreview();await f.c.preview(preview);
+  const command={kind:'edit',mode:'photo',draftId:preview.id,actor:'d'.repeat(64),nonce:crypto.randomUUID(),image:jpeg(4000).toString('base64'),credit:'Maria Silva'};
+  await assert.rejects(f.c.panelDecision({...command,credit:''}),e=>e.code==='invalid_decision');
+  await f.c.panelDecision(command);const job=(await f.c.claimCommand({})).command;
+  assert.equal(job.kind,'edit');assert.equal(job.mode,'photo');assert.equal(job.credit,'Maria Silva');assert.equal(job.photo,true);assert.equal(f.c.media(job.receipt).length,4004);
+});
+test('painel e grupo: agendamento espera o horário e cancelamento reabre para revisão',async t=>{
+  const {f}=await photoFixture(t),preview=draftPreview();await f.c.preview(preview);
+  await f.c.panelDecision({kind:'approve',draftId:preview.id,actor:'d'.repeat(64),nonce:crypto.randomUUID(),scheduledAt:new Date(Date.now()+120000).toISOString()});
+  assert.equal((await f.c.claimCommand({})).command,null);assert.equal(f.c.newsroom().scheduled.length,1);
+  await f.message({text:'CANCELAR 1'});assert.equal(f.c.newsroom().scheduled.length,0);assert.equal(f.c.newsroom().previews.length,1);
+});
+test('resumo e monitor: grupo validado, um envio por evento, sem alerta de domínio falso',async t=>{
+  const {f}=await photoFixture(t);const day=new Date(Date.now()-3*3600000).toISOString().slice(0,10);
+  await f.c.dailySummary({day});assert.equal((await f.c.dailySummary({day})).duplicate,true);
+  const alert={hash:'e'.repeat(64),title:'A apurar: licitação de Paracuru',url:'https://paracuru.ce.gov.br/licitacoes'};
+  await f.c.monitorAlert(alert);assert.equal((await f.c.monitorAlert(alert)).duplicate,true);
+  await assert.rejects(f.c.monitorAlert({...alert,url:'https://gov.br.evil.example/x'}),e=>e.code==='invalid_alert');
+  assert.match(f.sends.at(-1).msg.text,/não comprova irregularidade/);
+});
+test('Stories exige publicação confirmada e entrega uma imagem sem duplicar',async t=>{
+  const {f}=await photoFixture(t),preview=draftPreview();await f.c.preview(preview);
+  const raw=Buffer.alloc(40);Buffer.from([137,80,78,71,13,10,26,10]).copy(raw);raw.writeUInt32BE(1080,16);raw.writeUInt32BE(1920,20);
+  const body={draftId:preview.id,url:'https://tomezap.com.br/noticia/teste/',png:raw.toString('base64')};
+  await assert.rejects(f.c.story(body),e=>e.code==='approval_required');
+  await f.message({text:'APROVAR 1'});const {command}=await f.c.claimCommand({});
+  await f.c.commandResult({id:command.id,lease:command.lease,code:'live',draftId:preview.id,url:body.url});
+  await f.c.story(body);assert.ok(Buffer.isBuffer(f.sends.at(-1).msg.image));assert.equal((await f.c.story(body)).duplicate,true);
+});
 test('foto: assinatura do arquivo decide o tipo; cofre de mídia recusa o resto',async t=>{
   assert.equal(sniff(jpeg(2000)),'image/jpeg');assert.equal(sniff(Buffer.from('<html><script>alert(1)</script></html>')),null);assert.equal(sniff(Buffer.alloc(4)),null);
   const directory=await mkdtemp(join(tmpdir(),'tnn-media-'));t.after(()=>rm(directory,{recursive:true,force:true}));

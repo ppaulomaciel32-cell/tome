@@ -30,3 +30,11 @@ test('painel: ferramentas só apontam para o túnel local',()=>{
   const links=[...new JSDOM(toolsPage()).window.document.querySelectorAll('a')].map(a=>a.href);
   assert.equal(links.length,5);for(const link of links)assert.match(link,/^http:\/\/localhost:181\d\d\/$/);
 });
+test('editor direto mantém o texto escrito e só pede outra prévia, sem aprovar escondido',async()=>{
+  const main=document.getElementById('m'),calls=[],data=draft({titulo:'Título original'});
+  main.innerHTML=draftDetail(data,false,{number:7,actions:true});mountDraftActions(main,{id,draft:data,request:async(path,body)=>{calls.push(body);return {};}});
+  main.querySelector('[data-field=texto]').value='Texto exato do editor.';
+  main.querySelector('[data-editor=direct]').click();await tick();
+  assert.equal(calls[0].kind,'edit');assert.equal(calls[0].mode,'direct');assert.equal(calls[0].fields.texto,'Texto exato do editor.');
+  assert.ok(main.querySelector('[data-photo]'));assert.ok(main.querySelector('[data-schedule]'));
+});

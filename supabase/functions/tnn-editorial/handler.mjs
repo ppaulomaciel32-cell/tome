@@ -20,10 +20,12 @@ export function createEditorialHandler(env,{fetchImpl=fetch}={}){
       const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
       const p=JSON.parse(new TextDecoder().decode(bytes));
       if(!p || !uuid.test(p.draft_id || '') || !hash.test(p.receipt || '') || !hash.test(p.editor_hash || '') || p.revision!==1 || !['approve','reject'].includes(p.action))return reply(400,{code:'invalid_decision'});
+      if(p.not_before!==undefined && (p.action!=='approve' || typeof p.not_before!=='string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(p.not_before) || !Number.isFinite(Date.parse(p.not_before))))return reply(400,{code:'invalid_decision'});
       const signingKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.TNN_EDITORIAL_SIGNING_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-      const proof=JSON.stringify({action:p.action,draft_id:p.draft_id,revision:1,receipt:p.receipt,editor_hash:p.editor_hash});
+      const proof=JSON.stringify({action:p.action,draft_id:p.draft_id,revision:1,receipt:p.receipt,editor_hash:p.editor_hash,...(p.not_before?{not_before:p.not_before}: {})});
       const signature=Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',signingKey,new TextEncoder().encode(proof))),b=>b.toString(16).padStart(2,'0')).join('');
       if(!hash.test(p.signature || '') || !await equals(p.signature,signature))return reply(403,{code:'approval_proof_required'});
+      if(p.not_before && Date.parse(p.not_before)>Date.now())return reply(409,{code:'scheduled_not_due'});
       // Conferir rebuild ANTES da transação; sem hook, não escrever publicação.
       if(p.action==='approve' && !publishReady)return reply(503,{code:'awaiting_configuration'});
       const response=await fetchImpl(env.SUPABASE_URL+'/rest/v1/rpc/tnn_editorial_decide',{

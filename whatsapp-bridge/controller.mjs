@@ -75,7 +75,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     if(participants.some(p=>![p.id,p.pn,p.lid].some(id=>id && (allowed.has(id) || ownIds.includes(id))))) fail(409,'unexpected_members','O grupo contém alguém além dos editores autorizados e do robô. Confira os participantes.');
     return allowed;
   }
-  async function sendGroup(text) {
+  async function sendGroup(text,image=null) {
     const group=selection(); if(!group) fail(409,'no_group','Escolha o grupo autorizado.');
     await members(await metadata(group.id));
     const sends=vault.get('sends',[]).filter(t=>t>now()-3600000);
@@ -84,7 +84,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     sends.push(now());vault.put('sends',sends);
     // Reserva antes do envio; a resposta incerta também não pode virar nova pauta.
     vault.put('outboundHashes',[...vault.get('outboundHashes',[]).filter(x=>x.at>now()-72*3600000),{hash:messageDigest(text),at:now()}].slice(-100));
-    const sent=await socket.sendMessage(group.id,{text});
+    const sent=await socket.sendMessage(group.id,image?{image,caption:text,mimetype:'image/png'}:{text});
     if(!sent?.key?.id)fail(503,'delivery_uncertain','O envio não foi confirmado. Confira o grupo e o painel antes de tentar de novo.');
     if(sent?.key?.id && sent.message) vault.put('outbound', [...vault.get('outbound',[]).filter(m=>m.at>now()-3600000),{id:sent.key.id,group:group.id,message:sent.message,at:now()}].slice(-20));
     return {sent:true};
@@ -134,6 +134,13 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
             parsed.draftId=target.id;
           }
           delete parsed.number;delete parsed.latest;
+          if(parsed.kind==='cancel'){
+            if(vault.claim(receipt,now())){manual.cancel(parsed.draftId);previews.reopen(parsed.draftId);await sendGroup('Agendamento cancelado. Confira o rascunho antes de aprovar novamente.');}
+            continue;
+          }
+          if(parsed.notBefore && (parsed.notBefore<now()+60000 || parsed.notBefore>now()+30*86400000)){
+            if(vault.claim(receipt,now()))await sendGroup('Use AGENDAR número AAAA-MM-DD HH:MM, entre 1 minuto e 30 dias. Horário de Fortaleza.');continue;
+          }
           if(parsed.kind==='edit' && vault.get('preview:'+parsed.draftId+':1')!=='sent')continue;
           if(parsed.kind==='approve' && vault.get('preview:'+parsed.draftId+':1')!=='sent'){
             if(vault.claim(receipt,now()))await sendGroup('Não há prévia confirmada para esse ID. Confira o rascunho e aguarde a prévia antes de aprovar.');continue;
@@ -142,7 +149,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
           if(parsed.kind!=='pauta'){
             if(!config.editorialSigningKey){if(vault.claim(receipt,now()))await sendGroup('A aprovação ainda precisa da assinatura editorial configurada na ponte e no Supabase. Nada foi publicado.');continue;}
             // A correção assina só a retirada do rascunho antigo; o novo passa por nova aprovação.
-            parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind==='edit'?'reject':parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
+            parsed.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:parsed.kind==='edit'?'reject':parsed.kind,draft_id:parsed.draftId,revision:1,receipt,editor_hash:editorHash,
+              ...(parsed.notBefore?{not_before:new Date(parsed.notBefore).toISOString()}: {})})).digest('hex');
           }
           let photo='none';
           if(parsed.kind==='pauta' && image){
@@ -239,6 +247,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     newsroom:()=>{
       const q=manual.status(),quota=vault.get('manual:quota',null);
       return {previews:previews.open().slice(-30).map(p=>({n:p.n,id:p.id,titulo:p.titulo,at:new Date(p.at).toISOString()})),
+        scheduled:manual.scheduled(),
         publishedToday:q.publishedToday,queued:q.queued,processing:q.processing,quota:quota?{used:quota.used,limit:quota.limit}:null,
         workerSeenAt:vault.get('manual:workerAt',null),manualEnabled:Boolean(config.manualEnabled)};
     },
@@ -246,26 +255,70 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     panelDecision:body=>run(async()=>{
       if(!config.manualEnabled)fail(409,'manual_disabled','A redação manual está desligada na ponte.');
       if(!config.editorialSigningKey)fail(409,'awaiting_configuration','A assinatura editorial ainda não está configurada.');
-      if(!['approve','reject','edit'].includes(body?.kind) || !commandUUID.test(body?.draftId || '') || !/^[a-f0-9]{64}$/.test(body?.actor || '') || !/^[a-f0-9-]{36}$/.test(body?.nonce || ''))fail(400,'invalid_decision','Decisão inválida.');
+      if(!['approve','reject','edit','cancel'].includes(body?.kind) || !commandUUID.test(body?.draftId || '') || !/^[a-f0-9]{64}$/.test(body?.actor || '') || !/^[a-f0-9-]{36}$/.test(body?.nonce || ''))fail(400,'invalid_decision','Decisão inválida.');
+      if(body.kind==='cancel'){const result=manual.cancel(body.draftId);previews.reopen(body.draftId);return result;}
       if(vault.get('preview:'+body.draftId+':1')!=='sent')fail(409,'no_preview','Esse rascunho ainda não teve prévia confirmada no grupo.');
       const number=previews.number(body.draftId),open=previews.open().some(p=>p.id===body.draftId);
       if(!open)fail(409,'already_decided','Esse rascunho já foi decidido ou corrigido.');
       const command={kind:body.kind,draftId:body.draftId,revision:1};
+      if(body.scheduledAt!==undefined){
+        const at=Date.parse(body.scheduledAt);
+        if(body.kind!=='approve' || !Number.isFinite(at) || at<now()+60000 || at>now()+30*86400000)fail(400,'invalid_decision','Agende entre 1 minuto e 30 dias a partir de agora.');
+        command.notBefore=at;
+      }
       if(body.kind==='edit'){
         const text=typeof body.text==='string'?body.text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g,' ').trim():'';
-        if(!['fix','title'].includes(body.mode) || text.length<5 || text.length>(body.mode==='title'?300:1500))fail(400,'invalid_decision','Escreva o pedido de correção (ou a nova manchete).');
+        if(!['fix','title','direct','photo'].includes(body.mode) || (['fix','title'].includes(body.mode) && (text.length<5 || text.length>(body.mode==='title'?300:1500))))fail(400,'invalid_decision','Escreva o pedido de correção (ou a nova manchete).');
         Object.assign(command,{mode:body.mode,text});
+        if(body.mode==='direct'){
+          const d=body.fields,valid=(x,min,max)=>typeof x==='string' && x.length>=min && x.length<=max && !/[<>\x00-\x08\x0b-\x1f]/.test(x);
+          if(!d || !valid(d.titulo,3,300) || !valid(d.resumo,10,500) || !valid(d.texto,100,20000) || !['sao-goncalo','pecem','taiba','croata','paracuru','regiao'].includes(d.localidade))fail(400,'invalid_decision','Confira título, resumo, texto e localidade.');
+          command.fields={titulo:d.titulo,resumo:d.resumo,texto:d.texto,localidade:d.localidade};
+        }
       }
       // Recibo único por pedido do painel; repetição do mesmo pedido não duplica a fila.
       const receipt=createHash('sha256').update('painel|'+body.actor+'|'+body.draftId+'|'+body.kind+'|'+body.nonce).digest('hex');
       const editorHash=messageDigest('painel:'+body.actor);
-      command.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:body.kind==='edit'?'reject':body.kind,draft_id:body.draftId,revision:1,receipt,editor_hash:editorHash})).digest('hex');
+      if(body.mode==='photo'){
+        if(!mediaStore || typeof body.image!=='string' || body.image.length>28000000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.image) || typeof body.credit!=='string' || body.credit.trim().length<2 || body.credit.length>120 || /[<>\x00-\x1f]/.test(body.credit))fail(400,'invalid_decision','Envie uma foto JPG, PNG ou WebP e o crédito (2 a 120 caracteres).');
+        const raw=Buffer.from(body.image,'base64');if(raw.length<1000 || raw.length>20*1024*1024 || !sniff(raw))fail(400,'invalid_decision','Formato de foto inválido ou maior que 20 MB.');
+        mediaStore.put(receipt,raw);command.photo=true;command.credit=body.credit.trim();
+      }
+      command.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:body.kind==='edit'?'reject':body.kind,draft_id:body.draftId,revision:1,receipt,editor_hash:editorHash,
+        ...(command.notBefore?{not_before:new Date(command.notBefore).toISOString()}: {})})).digest('hex');
       const result=manual.add(command,receipt,editorHash);
       if(result.duplicate)return {queued:true,duplicate:true,number};
       previews.decide(body.draftId);
       const verb={approve:'Aprovado pelo painel',reject:'Rejeitado pelo painel',edit:'Correção pedida pelo painel'}[body.kind];
-      try{await sendGroup(verb+': rascunho nº '+number+'.'+(body.kind==='approve'?' Vou publicar e aviso aqui com o link.':''));}catch{}
-      return {queued:true,number};
+      try{await sendGroup(verb+': rascunho nº '+number+'.'+(command.notBefore?' Publicação agendada para '+new Date(command.notBefore).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})+' (Fortaleza).':body.kind==='approve'?' Vou publicar e aviso aqui com o link.':''));}catch{}
+      return {queued:true,number,...(command.notBefore?{scheduledAt:new Date(command.notBefore).toISOString()}: {})};
+    }),
+    monitorAlert:body=>run(async()=>{
+      let url;try{url=new URL(body?.url);}catch{fail(400,'invalid_alert','URL inválida.');}
+      if(!/^[a-f0-9]{64}$/.test(body?.hash || '') || typeof body.title!=='string' || body.title.length>300 || url.protocol!=='https:' || url.username || url.password || url.port || !['.gov.br','.leg.br','.mp.br','.jus.br','.def.br'].some(s=>url.hostname.endsWith(s)))fail(400,'invalid_alert','Monitor exige documento oficial.');
+      const key='monitor:'+body.hash;if(vault.get(key))return {duplicate:true};vault.put(key,'claimed');
+      await sendGroup('Alerta de apuração\n'+body.title.replace(/[\r\n\x00-\x1f]/g,' ')+'\n'+url.href+'\nMudança de página não comprova irregularidade. O robô tentará preparar uma prévia; confira documento, data e partes envolvidas. Nada publicado.');
+      vault.put(key,'sent');return {sent:true};
+    }),
+    dailySummary:body=>run(async()=>{
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(body?.day || ''))fail(400,'invalid_summary','Data inválida.');
+      const day=new Date(now()-3*3600000).toISOString().slice(0,10);
+      if(body.day!==day)fail(400,'invalid_summary','Resumo deve ser do dia atual.');
+      const key='summary:'+day;if(vault.get(key))return {duplicate:true};
+      const top=Array.isArray(body.top)?body.top.slice(0,3).filter(a=>typeof a.title==='string' && a.title.length<=140 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(a.slug || '') && Number.isSafeInteger(a.views) && a.views>0):[];
+      const q=manual.status();vault.put(key,'claimed');
+      await sendGroup('Resumo da redação · '+day+'\nPublicações aprovadas hoje: '+q.publishedToday+'\nAguardando aprovação: '+previews.open().length+'\nAgendadas: '+manual.scheduled().length+'\nNa fila: '+q.queued
+        +(top.length?'\nMais lidas (30 dias, GA4):\n'+top.map(a=>a.title.replace(/[\r\n\x00-\x1f]/g,' ')+' · '+a.views+' visualizações\nhttps://tomezap.com.br/noticia/'+a.slug+'/').join('\n'):'\nMais lidas: aguardando dados reais do GA4.'));
+      vault.put(key,'sent');return {sent:true};
+    }),
+    story:body=>run(async()=>{
+      if(!commandUUID.test(body?.draftId || '') || typeof body.png!=='string' || body.png.length>2000000 || !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body.url || ''))fail(400,'invalid_story','Arte inválida.');
+      const raw=Buffer.from(body.png,'base64');
+      if(raw.length<24 || raw.length>=1500000 || !raw.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || raw.readUInt32BE(16)!==1080 || raw.readUInt32BE(20)!==1920)fail(400,'invalid_story','A arte deve ser PNG de 1080 × 1920.');
+      // Só envia Stories de uma matéria cuja aprovação foi concluída na ponte.
+      if(!vault.get('publication:'+body.draftId))fail(409,'approval_required','Publicação ainda não confirmada.');
+      const key='story:'+body.draftId;if(vault.get(key))return {duplicate:true};vault.put(key,'claimed');
+      await sendGroup('Stories da matéria\n'+body.url,raw);vault.put(key,'sent');return {sent:true};
     }),
     // Entrega a foto à redação pela rede interna; apaga quando a redação confirma.
     media:receipt=>{const data=/^[a-f0-9]{64}$/.test(receipt || '') && mediaStore?mediaStore.get(receipt):null;if(!data)fail(404,'media_not_found','Foto não encontrada.');return data;},
@@ -273,6 +326,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     publicationStatus:body=>run(async()=>{
       if(!commandUUID.test(body?.id || '') || !commandUUID.test(body?.draftId || '') || !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body?.url || ''))fail(400,'invalid_result','Resultado inválido.');
       const result=manual.publication(body);if(result.duplicate)return result;
+      vault.put('publication:'+body.draftId,true);
       await sendGroup('No ar: '+body.url+'\nCompartilhar: '+body.url);return {ok:true};
     }),
     commandResult:body=>run(async()=>{
@@ -282,6 +336,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(body.url && !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body.url))fail(400,'invalid_result','URL inválida.');
       if(body.code==='live' && !body.url)fail(400,'invalid_result','URL obrigatória.');
       const result=manual.finish(body);if(result.duplicate)return {ok:true,duplicate:true};
+      if(body.code==='live')vault.put('publication:'+body.draftId,true);
       // Correção que falhou devolve o rascunho antigo à lista de aprovação.
       if(['edit_failed','queue_full','quota_limit'].includes(body.code) && result.job?.kind==='edit')previews.reopen(result.job.draftId);
       // A prévia já avisa que o rascunho está pronto; não gastar outra mensagem.
@@ -324,6 +379,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
       const replaced=body.replaces?previews.number(body.replaces):null;
       await sendGroup('RASCUNHO Nº '+n+(replaced?' (corrige o nº '+replaced+')':'')+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
+        +(body.investigative===true?'\n\nA APURAR: mudança em documento não comprova irregularidade. Confira no texto o que está documentado e o que falta confirmar.':'')
         +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
         +(body.cover?'\nCapa: '+(body.cover==='photo'?'foto enviada por você':'arte do jornal com a manchete')+(body.coverUrl?'\n'+body.coverUrl:''):'')
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id

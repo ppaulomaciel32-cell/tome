@@ -2,6 +2,7 @@ import {icon} from './icons.mjs';
 import {draftList,draftDetail} from './drafts.mjs';
 import {mountOperations} from './operations.mjs';
 import {mountAnalytics} from './analytics.mjs';
+import {scheduledHTML,mountSchedules} from './editor.mjs';
 import {statCards,mountOverviewStats,draftActionsHTML,mountDraftActions,mountInfra,infraPage,toolsPage} from './hub.mjs';
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export const modules = [
@@ -80,8 +81,9 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
       Promise.all([whatsappRequest('/drafts'+(detail?'/'+detail[1]:'' )),whatsappRequest('/newsroom').catch(()=>null)]).then(([data,room])=>{
         if(!target.isConnected)return;
         const numbers=Object.fromEntries((room?.previews || []).map(p=>[p.id,p.n]));
-        main.innerHTML=detail?draftDetail(data,false,{number:numbers[detail[1]],actions:Boolean(numbers[detail[1]])}):draftList(data,false,numbers);
-        if(detail && numbers[detail[1]])mountDraftActions(main,{id:detail[1],request:whatsappRequest});
+        main.innerHTML=detail?draftDetail(data,false,{number:numbers[detail[1]],actions:Boolean(numbers[detail[1]])}):draftList(data,false,numbers)+scheduledHTML(room?.scheduled || []);
+        if(detail && numbers[detail[1]])mountDraftActions(main,{id:detail[1],request:whatsappRequest,draft:data});
+        if(!detail)mountSchedules(main,whatsappRequest);
       }).catch(error=>{
         if(!target.isConnected)return;
         main.innerHTML='<section class="empty-card"><h1>Rascunhos aguardando conexão.</h1><p role="status"></p><a class="text-link" href="#whatsapp">Conferir o WhatsApp</a></section>';

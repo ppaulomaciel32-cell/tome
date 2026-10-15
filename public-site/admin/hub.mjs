@@ -1,5 +1,6 @@
 // Peças do painel que juntam robô, rascunhos, serviços e ferramentas num lugar só.
 import {icon} from './icons.mjs';
+import {mountEditor} from './editor.mjs';
 const escHub=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const COVER=/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/;
 export const coverURL=value=>COVER.test(value || '')?value:null;
@@ -31,8 +32,9 @@ export function draftActionsHTML(number){
     </details><p class="draft-action-status" role="status" aria-live="polite"></p>
     <p class="draft-action-note">O robô confirma no grupo do WhatsApp. Aprovar publica no site em poucos minutos; correção gera um novo rascunho para aprovar.</p></section>`;
 }
-export function mountDraftActions(main,{id,request}){
+export function mountDraftActions(main,{id,request,draft}){
   const box=main.querySelector('[data-draft-actions]');if(!box)return;
+  if(draft)mountEditor(box,{id,draft,request});
   const status=box.querySelector('.draft-action-status');
   const ask={approve:'Publicar esta matéria no site agora?',reject:'Descartar este rascunho? Ele não será publicado.'};
   box.querySelectorAll('[data-act]').forEach(button=>button.addEventListener('click',async()=>{

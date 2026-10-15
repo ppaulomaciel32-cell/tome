@@ -6,6 +6,10 @@ const approveWords=/^(?:aprovar|aprova|aprovo|aprovad[oa]|pode\s+(?:publicar|pos
 const rejectWords=/^(?:rejeitar|rejeita|rejeito|rejeitad[oa]|descartar|descarta|n[ãa]o\s+public(?:a|ar|ue)|n[ãa]o\s+post(?:a|ar|e))[\s.!]*$/i;
 export function parseManual(text){
   const plain=text.trim();
+  const timed=plain.match(/^AGENDAR\s+#?(\d{1,6})\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/i);
+  if(timed){const at=Date.parse(timed[2]+'T'+timed[3]+':00-03:00');return Number.isFinite(at)?{kind:'approve',number:Number(timed[1]),revision:1,notBefore:at}:null;}
+  const cancel=plain.match(/^CANCELAR\s+#?(\d{1,6})$/i);
+  if(cancel)return {kind:'cancel',number:Number(cancel[1])};
   const match=plain.match(/^(APROVAR|REJEITAR)\s+#?([a-f0-9-]{36})$/i);
   if(match && commandUUID.test(match[2].toLowerCase()))return {kind:match[1].toUpperCase()==='APROVAR'?'approve':'reject',draftId:match[2].toLowerCase(),revision:1};
   // Número curto da prévia: "APROVAR 12", "aprovar nº 12", "REJEITAR #12".
@@ -19,7 +23,7 @@ export function parseManual(text){
   if(retitle)return {kind:'edit',mode:'title',text:retitle[1].trim(),latest:true,revision:1};
   if(approveWords.test(plain))return {kind:'approve',latest:true,revision:1};
   if(rejectWords.test(plain))return {kind:'reject',latest:true,revision:1};
-  if(/^(STATUS|APROVAR|REJEITAR|EDITAR|CORRIGIR|STORIES|REELS|PAUSAR|RETOMAR)(?:\s|:|$)/i.test(text))return null;
+  if(/^(STATUS|APROVAR|REJEITAR|EDITAR|CORRIGIR|STORIES|REELS|PAUSAR|RETOMAR|AGENDAR|CANCELAR)(?:\s|:|$)/i.test(text))return null;
   const body=text.replace(/^(?:MANCHETE|PAUTA)\s*:\s*/i,'').trim();
   return body.length>=20 && body.length<=4000?{kind:'pauta',text:body}:null;
 }
@@ -53,7 +57,7 @@ export function manualQueue(vault,now,fail){
       return inserted?{job}:{duplicate:true};
     },
     claim(){
-      const rows=list(),job=rows.find(r=>r.state==='queued' || r.state==='processing' && r.until<now());
+      const rows=list(),job=rows.find(r=>(r.state==='queued' && (!r.notBefore || r.notBefore<=now())) || r.state==='processing' && r.until<now());
       if(!job)return null;
       job.state='processing';job.lease=randomUUID();job.until=now()+15*60000;vault.put('manual:queue',rows);return {...job};
     },
@@ -64,6 +68,8 @@ export function manualQueue(vault,now,fail){
       job.state='done';job.code=body.code;job.finished=now();job.draftId=body.draftId || job.draftId;
       vault.put('manual:queue',rows);return {job};
     },
+    scheduled(){return list().filter(r=>r.state==='queued' && r.notBefore>now()).map(r=>({id:r.id,draftId:r.draftId,at:new Date(r.notBefore).toISOString()}));},
+    cancel(draftId){const rows=list(),job=rows.find(r=>r.draftId===draftId && r.state==='queued' && r.notBefore>now());if(!job)fail(409,'already_decided','Agendamento não encontrado ou já em execução.');job.state='done';job.code='cancelled';vault.put('manual:queue',rows);return {cancelled:true};},
     status(){const rows=list(),day=new Date(now()-3*3600000).toISOString().slice(0,10);return {queued:rows.filter(r=>r.state==='queued').length,processing:rows.filter(r=>r.state==='processing').length,lastCode:rows.at(-1)?.code || null,
       // Dia contado no horário de Fortaleza (UTC-3).
       publishedToday:rows.filter(r=>r.kind==='approve' && ['live','publication_pending'].includes(r.code) && new Date((r.finished || 0)-3*3600000).toISOString().slice(0,10)===day).length};}

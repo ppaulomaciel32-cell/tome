@@ -50,11 +50,11 @@ function limiter(now = Date.now) {
     if (++entry.count > limit) throw new PanelError(429, 'rate_limit', 'Muitas tentativas. Aguarde alguns minutos.');
   };
 }
-async function jsonBody(req) {
+async function jsonBody(req,cap=8192) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw new PanelError(415, 'json_required', 'Envie os dados no formato esperado.');
-  if (Number(req.headers['content-length']) > 8192) throw new PanelError(413, 'too_large', 'O formulário excedeu o tamanho permitido.');
+  if (Number(req.headers['content-length']) > cap) throw new PanelError(413, 'too_large', 'O formulário excedeu o tamanho permitido.');
   const chunks = []; let size = 0;
-  for await (const chunk of req) {size += chunk.length; if (size > 8192) throw new PanelError(413, 'too_large', 'O formulário excedeu o tamanho permitido.'); chunks.push(chunk);}
+  for await (const chunk of req) {size += chunk.length; if (size > cap) throw new PanelError(413, 'too_large', 'O formulário excedeu o tamanho permitido.'); chunks.push(chunk);}
   try {const data = JSON.parse(Buffer.concat(chunks)); if (!data || Array.isArray(data) || typeof data !== 'object') throw Error(); return data;}
   catch {throw new PanelError(400, 'invalid_json', 'Confira os dados e tente novamente.');}
 }
@@ -63,9 +63,9 @@ const sameSecret = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader,workflowReader} = {}) {
+export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now = Date.now, whatsappClient,draftReader,workflowReader,analyticsReader} = {}) {
   const auth = createAuth(config, {fetchImpl, now}), limit = limiter(now);
-  const analytics=createAnalytics(config,{fetchImpl,now});
+  const analytics=analyticsReader || createAnalytics(config,{fetchImpl,now});
   const wa=whatsappClient || createWhatsAppClient(config,{fetchImpl});
   const drafts=draftReader || createDraftReader(config,{fetchImpl});
   const workflow=workflowReader || createWorkflowReader(config,{whatsapp:wa,drafts,fetchImpl,now});
@@ -108,6 +108,16 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const ip = config.trustProxy && typeof proxyIp === 'string' && isIP(proxyIp) ? proxyIp : req.socket.remoteAddress;
       limit('all:' + ip, 120, 60000);
       if (!config.configured) throw new PanelError(503, 'awaiting_connection', 'Aguardando conexão: o acesso seguro ainda precisa ser ativado no servidor.');
+      if(path==='/painel-api/popular' && req.method==='GET'){
+        // Só ranking agregado de URLs públicas; nunca credenciais ou origem por leitor.
+        limit('popular:'+ip,30,60000);
+        const report=await analytics();
+        res.setHeader('Access-Control-Allow-Origin',config.siteUrl);
+        res.setHeader('Cache-Control','public, max-age=300');
+        return send(200,{configured:report.configured,days:report.days || 30,updatedAt:report.updatedAt || null,
+          articles:(report.articles || []).filter(a=>Number.isSafeInteger(a.views) && a.views>0 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(a.slug || '')).slice(0,20)
+            .map(({slug,title,localidade,views})=>({slug,title,localidade,views}))});
+      }
       if(asset && req.method==='GET') {
         const session=await auth.session(req.headers.cookie);
         if(session.user.role!=='owner')throw new PanelError(403,'owner_required','Somente o dono pode parear o chip e escolher o grupo.');
@@ -141,10 +151,11 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
         if(req.method!=='POST')throw new PanelError(405,'method_denied','Operação não permitida.');
         if(!sameSecret(req.headers['x-csrf-token'],session.csrf))throw new PanelError(403,'csrf_denied','Atualize a página antes de continuar.');
         limit('decision:'+session.user.id,10,60000);
-        const body=await jsonBody(req);
+        const body=await jsonBody(req,28500000);
         if(!/^[a-f0-9-]{36}$/.test(body.nonce || ''))throw new PanelError(400,'invalid_decision','Atualize a página e tente de novo.');
         const actor=createHash('sha256').update('painel-usuario|'+session.user.id).digest('hex');
-        return send(200,await wa('/decision',{kind:body.kind,draftId:decisionRoute[1],mode:body.mode,text:body.text,actor,nonce:body.nonce}));
+        return send(200,await wa('/decision',{kind:body.kind,draftId:decisionRoute[1],mode:body.mode,text:body.text,actor,nonce:body.nonce,
+          fields:body.fields,image:body.image,credit:body.credit,scheduledAt:body.scheduledAt}));
       }
       if(path==='/painel-api/newsroom'){
         if(req.method!=='GET')throw new PanelError(405,'method_denied','Operação não permitida.');

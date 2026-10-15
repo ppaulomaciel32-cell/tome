@@ -32,11 +32,13 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
         res.setHeader('Content-Type','application/octet-stream');res.statusCode=200;return res.end(data);
       }
       if(producer)producerRoutes['POST /media/release']=body=>controller.releaseMedia(body);
+      if(producer){producerRoutes['POST /stories']=body=>controller.story(body);producerRoutes['POST /daily-summary']=body=>controller.dailySummary(body);producerRoutes['POST /monitor-alert']=body=>controller.monitorAlert(body);}
       const action=(producer?producerRoutes:routes)[req.method+' '+path];if(!action)throw new BridgeError(404,'not_found','Endereço não encontrado.');
       let body={};
       if(req.method==='POST') {
         if(!/^application\/json(?:;|$)/.test(req.headers['content-type']||''))throw new BridgeError(415,'invalid_body','Use JSON.');
-        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>(producer?12000:6000))throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
+        const cap=path==='/decision'?28500000:path==='/stories'?2010000:producer?12000:6000;
+        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>cap)throw new BridgeError(413,'too_large','Pedido grande demais.');chunks.push(chunk);}
         try{body=JSON.parse(Buffer.concat(chunks));if(!body || Array.isArray(body)||typeof body!=='object')throw Error();}catch{throw new BridgeError(400,'invalid_body','Dados inválidos.');}
       }
       send(200,await action(body));

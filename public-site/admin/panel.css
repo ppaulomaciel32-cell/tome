@@ -56,3 +56,4 @@
 .service-ok .status-pill{background:#eaf5e2;border-color:#cfe6bf;color:#3c6a2c}.service-ok .status-pill>span{background:#6aa84f}
 .service-attention .status-pill{background:#fff3ee;border-color:#f0cfc2;color:#9a4a32}.service-attention .status-pill>span{background:#d0694b}
 @media(max-width:620px){.draft-actions{padding:18px}.draft-action-row .button{flex:1}}
+.editor-tools label{display:grid;gap:.5rem;margin:1rem 0}.editor-tools input,.editor-tools textarea,.editor-tools select{box-sizing:border-box;width:100%;max-width:100%;padding:.8rem;border:1px solid #bac8d7;border-radius:10px;font:inherit;color:#112b44;background:white}.editor-tools textarea{line-height:1.7;resize:vertical}.editor-tools button,.editor-tools summary{min-height:44px}.editor-tools [role=status]{overflow-wrap:anywhere}

@@ -4,6 +4,9 @@ import os
 import re
 import time
 import uuid
+import base64
+from pathlib import Path
+from datetime import datetime,timezone
 from ..core import AgentError,normalize
 from ..providers import Net
 from .collection import digest,accepted
@@ -20,7 +23,8 @@ class Editorial:
     def decide(self,job):
         if not self.configured:raise AgentError('A aprovação editorial ainda não está configurada.')
         return self.net.json(self.url,{'action':job['kind'],'draft_id':job['draftId'],'revision':job['revision'],
-            'receipt':job['receipt'],'editor_hash':job['editorHash'],'signature':job['signature']},
+            'receipt':job['receipt'],'editor_hash':job['editorHash'],'signature':job['signature'],
+            **({'not_before':datetime.fromtimestamp(job['notBefore']/1000,timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')} if job.get('notBefore') else {})},
             {'x-editorial-token':self.token},timeout=25,max_bytes=10000)
     def live(self,result):
         # A URL retornada deve ser do jornal; redirects são bloqueados pelo Net.
@@ -70,9 +74,25 @@ class Manual:
             if self.editorial.live(p):
                 try:
                     self.bridge.call('/publication-status',{'id':data['job']['id'],'draftId':data['job']['draftId'],'url':p['url']})
+                    self.send_story(data['job']['draftId'],p['url'])
                     self.state.client.delete(key)
                 except AgentError:pass
             break  # Um probe por rodada; não atrasar toda a fila.
+    def send_story(self,draft_id,url):
+        """Peça editorial a partir da capa própria; nunca busca imagem de outro portal."""
+        try:
+            from ..art import render_story
+            from PIL import Image
+            draft=self.drafts.fetch(draft_id);photo=None
+            match=re.fullmatch(r'https://bot\.tomezap\.com\.br/imagens/([a-f0-9]{32})-1600\.jpg',draft.get('capa_url',''))
+            if match and self.covers and self.covers.enabled:
+                file=Path(self.covers.directory)/(match[1]+'-1600.jpg')
+                if file.is_file():
+                    with Image.open(file) as image:photo=image.convert('RGB')
+            raw=render_story(draft,photo=photo)
+            self.bridge.call('/stories',{'draftId':draft_id,'url':url,'png':base64.b64encode(raw).decode()})
+            return True
+        except Exception:return False  # Publicação não é desfeita por falha da arte.
     def one(self):
         if not self.config.manual_enabled:return False
         self.check_deploy()
@@ -88,6 +108,7 @@ class Manual:
         try:
             result=self.process(job)
             self.bridge.call('/commands/result',{'id':job['id'],'lease':job['lease'],**result})
+            if result.get('code')=='live':self.send_story(job['draftId'],result['url'])
         except Exception:
             # Resultados incertos ficam na fila; reexecução usa cache e IDs persistentes.
             pass
@@ -96,7 +117,7 @@ class Manual:
         return True
     def edit(self,job,memo):
         """Correção antes de aprovar: nasce um rascunho novo e o antigo é retirado da fila."""
-        if not self.config.gemini_free:return {'code':'awaiting_configuration'}
+        if job.get('mode') not in ('title','direct','photo') and not self.config.gemini_free:return {'code':'awaiting_configuration'}
         context=self.retry(lambda:self.drafts.call())
         if context.get('capabilities',{}).get('manual') is not True:return {'code':'awaiting_configuration'}
         if not memo.get('old'):
@@ -108,6 +129,8 @@ class Manual:
             memo['started']=True;self.cache(job['id'],memo)
         if not memo.get('draft'):
             if job.get('mode')=='title':new=self.writer.retitle(old,job['text'])
+            elif job.get('mode')=='direct':new=self.writer.direct(old,job['fields'])
+            elif job.get('mode')=='photo':new={k:old[k] for k in ('slug','titulo','resumo','texto','localidade','fontes','evidencias')}
             else:
                 # Mesma regra da pauta: resposta incerta não gasta cota duas vezes.
                 if memo.get('generation_started'):return {'code':'edit_failed','draftId':job['draftId']}
@@ -122,6 +145,10 @@ class Manual:
                     try:new['capa_url']=self.covers.art(new['titulo'],new['localidade']) if self.covers and self.covers.enabled else old['capa_url']
                     except Exception:new['capa_url']=old['capa_url']
                     memo['cover']='art'
+            if job.get('mode')=='photo':
+                fields,kind=self.cover(job,new)
+                if kind!='photo':raise AgentError('A foto não pôde ser validada; mantenha o rascunho anterior.')
+                new.update(fields);memo['cover']='photo'
             memo['draft']=new
             # Revisão da mesma pauta: registros próprios, sem esbarrar na deduplicação da original.
             memo['seen']=[{'hash':digest('correcao:'+job['receipt']+':titulo'),'tipo':'titulo','titulo':new['titulo'][:500]}]+[
@@ -160,7 +187,9 @@ class Manual:
                 p=memo['publication']
                 if job['kind']=='reject':result={'code':'rejected','draftId':job['draftId']}
                 else:
-                    if self.editorial.live(p):result={'code':'live','draftId':job['draftId'],'url':p['url']}
+                    if self.editorial.live(p):
+                        # Stories é enviado depois da confirmação do resultado na ponte.
+                        result={'code':'live','draftId':job['draftId'],'url':p['url']}
                     else:
                         # Deixa uma conferência pendente, sem bloquear o trabalhador.
                         self.state.client.set(self.prefix+'deploy:'+job['draftId'],json.dumps({'publication':p,'job':job}),ex=7*86400)
