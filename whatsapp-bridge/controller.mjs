@@ -24,7 +24,7 @@ export function loadBridgeConfig(env = process.env) {
   if(editorialSigningKey && (!/^[a-f0-9]{64}$/.test(editorialSigningKey) || [pipelineToken,env.WA_BRIDGE_TOKEN].includes(editorialSigningKey)))throw Error('A assinatura editorial exige um segredo exclusivo.');
   return {enabled, number, allowedNumbers, groupName:'Comando Tome Nota', token:env.WA_BRIDGE_TOKEN,
     acceptOwnCommands:env.WA_ACCEPT_OWN_COMMANDS==='true',manualEnabled:env.WA_MANUAL_ENABLED==='true' && Boolean(pipelineToken),editorialSigningKey,
-    pipelineToken,mediaDirectory:env.WA_MEDIA_DIR || '',
+    pipelineToken,mediaDirectory:env.WA_MEDIA_DIR || '',requirePhoto:env.WA_REQUIRE_PHOTO!=='false',
     configured:enabled && Boolean(number && allowedNumbers.length), directory:env.WA_SESSION_DIR || '/data/session', key:env.WA_SESSION_KEY};
 }
 
@@ -40,6 +40,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   const manual=manualQueue(vault,now,fail);
   const previews=previewRegistry(vault,now);
   const label=id=>{const n=previews.number(id);return n?'Rascunho nº '+n:'#'+id;};
+  const needsPhoto=n=>'O rascunho nº '+n+' está sem foto, e no Tome Nota toda matéria sai com foto. Mande a foto aqui com a legenda FOTO '+n+' (ou FOTO '+n+': nome de quem fotografou), ou pelo painel em Rascunhos → Enviar foto de capa. Depois aprove a nova prévia.';
   const cycleState = ()=>{
     if(!config.pipelineToken)return {state:'not_implemented'};
     const cycle=vault.get('cycle',null);
@@ -105,6 +106,25 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const text=content.conversation ?? content.extendedTextMessage?.text ?? image?.caption;
       // Foto ou texto que o próprio robô mandou (prévia com capa, Stories) nunca vira pauta nem pede legenda.
       if(key.fromMe && (vault.get('outbound',[]).some(x=>x.id===key.id) || (typeof text==='string' && vault.get('outboundHashes',[]).some(x=>x.hash===messageDigest(text) && x.at>now()-72*3600000))))continue;
+      const photoFor=image && typeof text==='string' && text.trim().match(/^FOTO\s+(?:n[ºo°.]?\s*)?#?(\d{1,6})(?:\s*[:\-–—]\s*(.{2,80}))?\s*$/i);
+      if(photoFor && config.manualEnabled){
+        // Foto para um rascunho que já existe: vira nova prévia com a foto na capa.
+        const receipt=createHash('sha256').update(group.id+'|'+(key.fromMe?identityJid(config.number+'@s.whatsapp.net'):sender)+'|'+key.id).digest('hex');
+        const target=previews.byNumber(Number(photoFor[1]));
+        try{
+          if(!target || !previews.open().some(p=>p.id===target.id)){if(vault.claim(receipt,now()))await sendGroup('Não encontrei o rascunho nº '+photoFor[1]+' aguardando decisão.');continue;}
+          if(!config.editorialSigningKey || !mediaStore || !socket.downloadMedia || !mediaTypes.includes(image.mimetype) || Number(image.fileLength || 0)>MAX_MEDIA){if(vault.claim(receipt,now()))await sendGroup('Não consegui usar essa foto. Envie JPG ou PNG de até 25 MB, ou use o painel.');continue;}
+          const data=await socket.downloadMedia(message);
+          if(!Buffer.isBuffer(data) || data.length<1000 || data.length>MAX_MEDIA || !sniff(data)){if(vault.claim(receipt,now()))await sendGroup('Não consegui usar essa foto. Envie JPG ou PNG de até 25 MB, ou use o painel.');continue;}
+          const editorHash=messageDigest(key.fromMe?identityJid(config.number+'@s.whatsapp.net'):sender);
+          const command={kind:'edit',mode:'photo',text:'',draftId:target.id,revision:1,photo:true,credit:(photoFor[2] || 'Foto enviada à Redação Tome Nota').replace(/[\x00-\x1f\x7f<>]/g,' ').trim()};
+          command.signature=createHmac('sha256',config.editorialSigningKey).update(JSON.stringify({action:'reject',draft_id:target.id,revision:1,receipt,editor_hash:editorHash})).digest('hex');
+          mediaStore.put(receipt,data);
+          const result=manual.add(command,receipt,editorHash);
+          if(result.job){previews.decide(target.id);await sendGroup('Foto recebida para o rascunho nº '+target.n+'. Vou montar a nova prévia com ela na capa.');}
+        }catch(error){if(error.code==='queue_full')try{await sendGroup(error.message);}catch{}}
+        continue;
+      }
       if(image && config.manualEnabled && (typeof text!=='string' || text.trim().length<20)){
         const hint=createHash('sha256').update(group.id+'|foto|'+key.id).digest('hex');
         if(vault.claim(hint,now()))try{await sendGroup('Recebi a foto, mas sem a pauta. Mande a foto de novo com a pauta escrita na legenda (pelo menos uma frase), que eu preparo a matéria com ela na capa.');}catch{}
@@ -146,6 +166,9 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
           if(parsed.kind==='edit' && vault.get('preview:'+parsed.draftId+':1')!=='sent')continue;
           if(parsed.kind==='approve' && vault.get('preview:'+parsed.draftId+':1')!=='sent'){
             if(vault.claim(receipt,now()))await sendGroup('Não há prévia confirmada para esse ID. Confira o rascunho e aguarde a prévia antes de aprovar.');continue;
+          }
+          if(parsed.kind==='approve' && config.requirePhoto && !previews.hasPhoto(parsed.draftId)){
+            previews.reopen(parsed.draftId);if(vault.claim(receipt,now()))await sendGroup(needsPhoto(previews.number(parsed.draftId)));continue;
           }
           const editorHash=messageDigest(identity);
           if(parsed.kind!=='pauta'){
@@ -263,6 +286,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(vault.get('preview:'+body.draftId+':1')!=='sent')fail(409,'no_preview','Esse rascunho ainda não teve prévia confirmada no grupo.');
       const number=previews.number(body.draftId),open=previews.open().some(p=>p.id===body.draftId);
       if(!open)fail(409,'already_decided','Esse rascunho já foi decidido ou corrigido.');
+      if(body.kind==='approve' && config.requirePhoto && !previews.hasPhoto(body.draftId))fail(409,'needs_photo','Este rascunho está sem foto, e toda matéria do Tome Nota sai com foto. Use "Enviar foto de capa" acima e aprove a nova prévia.');
       const command={kind:body.kind,draftId:body.draftId,revision:1};
       if(body.scheduledAt!==undefined){
         const at=Date.parse(body.scheduledAt);
@@ -377,7 +401,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       online();const group=selection();if(!group)fail(409,'no_group','Confirme o grupo.');await members(await metadata(group.id,true));
       vault.put(key,'claimed');
       const clean=value=>value.replace(/[\r\n\x00-\x1f\x7f]/g,' ').trim();
-      const n=previews.add(body.id,clean(body.titulo));
+      const n=previews.add(body.id,clean(body.titulo),body.cover);
+      const hasPhoto=['photo','source'].includes(body.cover);
       const origin=body.single==='owner'?'Fonte: material enviado por você à redação'
         :body.single==='official'?'Fonte única (oficial): '+clean(body.sources[0].name)+'\n'+body.sources[0].url
         :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
@@ -387,6 +412,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         +(body.investigative===true?'\n\nA APURAR: mudança em documento não comprova irregularidade. Confira no texto o que está documentado e o que falta confirmar.':'')
         +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
         +(body.cover?'\nCapa: '+coverLabel:'')
+        +(config.requirePhoto && !hasPhoto?'\n\n⚠️ SEM FOTO: só publica com foto. Responda com a foto e a legenda FOTO '+n+' (ou envie pelo painel).':'')
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id
         +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar, responda APROVAR '+n+' (ou "pode publicar"). Para descartar, REJEITAR '+n+'.':'\n\nNada publicado. Comandos de aprovação serão ativados nos próximos marcos.');
       // Com capa, a prévia chega como foto com a legenda; texto longo vai logo abaixo.

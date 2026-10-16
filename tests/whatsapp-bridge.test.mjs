@@ -14,7 +14,7 @@ import {createBridgeServer} from '../whatsapp-bridge/server.mjs';
 import {openMediaStore,sniff} from '../whatsapp-bridge/media.mjs';
 import {BufferJSON,initAuthCreds,reviveAppState,qrEncoder} from '../whatsapp-bridge/baileys-adapter.mjs';
 const number='5511999990000',owner='5511999990001',editor='5511999990002',group='120363123456789000@g.us';
-const config=()=>loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner+','+editor,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'});
+const config=()=>loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner+','+editor,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true',WA_REQUIRE_PHOTO:'false'});
 test('nono dígito: equivalência restrita a celular brasileiro, sem alterar LIDs e fixos',()=>{
   assert.equal(canonicalNumber('5585991035373'),'558591035373');
   assert.equal(identityJid('5585991035373:4@s.whatsapp.net'),'558591035373@s.whatsapp.net');
@@ -437,4 +437,24 @@ test('painel: decisão usa o mesmo fluxo assinado, avisa o grupo e não decide d
   const {command}=await f.c.claimCommand({publisherReady:true});assert.equal(command.kind,'approve');assert.equal(command.draftId,d.id);assert.match(command.signature,/^[a-f0-9]{64}$/);
   await assert.rejects(f.c.panelDecision({kind:'reject',draftId:d.id,actor,nonce:'11111111-2222-4333-8444-555555555556'}),e=>e.code==='already_decided');
   const room=f.c.newsroom();assert.equal(room.previews.length,0);assert.equal(room.manualEnabled,true);
+});
+
+test('regra do jornal: sem foto real não publica; FOTO 12 com imagem refaz a prévia com a foto',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'tnn-media-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const f=await fixture(t,{mediaStore:openMediaStore(directory),cfg:{...config(),requirePhoto:true,acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
+  assert.equal(loadBridgeConfig({WA_ENABLED:'true',WA_DEDICATED_NUMBER:number,WA_ALLOWED_SENDERS:owner,WA_BRIDGE_TOKEN:'a'.repeat(64),AGENTE_REQUER_APROVACAO:'true'}).requirePhoto,true);
+  const art=draftPreview();await f.c.preview({...art,cover:'art'});assert.match(f.sends.at(-1).msg.text,/SEM FOTO: só publica com foto\. Responda com a foto e a legenda FOTO 1/);
+  await f.message({fromMe:true,text:'APROVAR 1'});assert.match(f.sends.at(-1).msg.text,/está sem foto/);assert.equal(f.c.status().manual.queued,0);
+  await assert.rejects(f.c.panelDecision({kind:'approve',draftId:art.id,actor:'d'.repeat(64),nonce:'11111111-2222-4333-8444-555555555555'}),e=>e.code==='needs_photo');
+  // Rejeitar continua possível sem foto.
+  f.socket.media=Buffer.concat([Buffer.from([0xff,0xd8,0xff,0xe0]),Buffer.alloc(5000,7)]);
+  f.callbacks.onMessages({type:'notify',messages:[{key:{remoteJid:group,participant:'100001@lid',id:'foto-12',fromMe:false},messageTimestamp:Date.now()/1000,message:{imageMessage:{mimetype:'image/jpeg',fileLength:5004,caption:'FOTO 1: Maria Silva'}}}]});await f.c.idle();
+  assert.match(f.sends.at(-1).msg.text,/Foto recebida para o rascunho nº 1/);
+  const {command}=await f.c.claimCommand({});assert.deepEqual([command.kind,command.mode,command.draftId,command.photo,command.credit],['edit','photo',art.id,true,'Maria Silva']);
+  assert.equal(f.c.media(command.receipt).length,5004);assert.match(command.signature,/^[a-f0-9]{64}$/);
+  // A nova prévia, com foto, pode ser aprovada.
+  const withPhoto={...draftPreview(),cover:'photo',coverUrl:'https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg',replaces:art.id};await f.c.preview(withPhoto);
+  await f.message({fromMe:true,text:'APROVAR 2'});const next=(await f.c.claimCommand({publisherReady:true})).command;assert.equal(next.kind,'approve');assert.equal(next.draftId,withPhoto.id);
+  const official={...draftPreview(),cover:'source',coverUrl:withPhoto.coverUrl,coverCredit:'Órgão/Divulgação'};await f.c.preview(official);
+  assert.deepEqual(await f.c.panelDecision({kind:'approve',draftId:official.id,actor:'d'.repeat(64),nonce:'11111111-2222-4333-8444-555555555556'}),{queued:true,number:3});
 });

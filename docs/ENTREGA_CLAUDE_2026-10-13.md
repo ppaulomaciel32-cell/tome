@@ -75,3 +75,14 @@ branch `feat/tomezap-robo-whatsapp`. A VPS Hostinger rodava `023e8db` (sem o
 - "Ferramentas": as cinco ferramentas da VPS, abertas pelo túnel SSH.
 - Textos atualizados (aprovação ativa, comandos do grupo, fonte única, fotos).
 - CSP do painel aceita imagens de `https://bot.tomezap.com.br` (capas).
+
+## Regra do jornal (16/10/2026, decisão do dono): toda matéria sai com foto
+
+- Capa, nesta ordem: foto do editor (grupo, `FOTO 12` com a imagem, ou painel)
+  → foto oficial da página da fonte (og:image do próprio órgão, crédito
+  "<Fonte>/Divulgação") → arte do jornal só como espaço reservado.
+- Rascunho sem foto real **não pode ser aprovado**, nem pelo grupo, nem pelo
+  painel (`needs_photo`), nem agendado. A prévia avisa "SEM FOTO" e diz como
+  mandar a foto. Rejeitar continua livre.
+- Nunca usar foto de portal comercial. A ponte lê `WA_REQUIRE_PHOTO`
+  (padrão: ligado); só desligar por decisão do dono.
