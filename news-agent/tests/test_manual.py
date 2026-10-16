@@ -135,7 +135,7 @@ class ManualTests(unittest.TestCase):
             draft=self.saved[0]['draft'];self.assertRegex(draft['capa_url'],PUBLIC.pattern);self.assertEqual(draft['capa_credito'],'Órgão A/Divulgação')
             preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview');self.assertEqual(preview['cover'],'source');self.assertEqual(preview['coverCredit'],'Órgão A/Divulgação')
             # Logotipo quadrado, portal comercial ou imagem de outro site: fica a arte do jornal.
-            for change in ({'https://a.example/fotos/ponte.jpg':picture((600,600))},):
+            for change in ({'https://a.example/fotos/ponte.jpg':picture((600,600))},{'https://a.example/fotos/ponte.jpg':picture((2400,300))}):
                 self.setUp();pages.update(change);self.collector.public=public;self.agent.covers=Covers(folder,BASE)
                 self.writer.write.return_value={**article(),'fontes':[row]};self.collector.manual.return_value=[row]
                 self.agent.process(self.job);self.assertNotIn('capa_credito',self.saved[0]['draft'])

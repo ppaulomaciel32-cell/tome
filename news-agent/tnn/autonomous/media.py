@@ -57,7 +57,8 @@ class Covers:
                 if not found:continue
                 raw,credit=found
                 with Image.open(io.BytesIO(raw)) as probe:width,height=probe.size
-                if width<800 or height<400 or not 1.2<=width/height<=2.4:continue
+                # Foto panorâmica serve (o site recorta o centro em 16:9); logotipo quadrado ou miniatura, não.
+                if width<800 or height<450 or not 1.2<=width/height<=4.0:continue
                 return self.photo(raw),credit
             except Exception:continue
         return None
