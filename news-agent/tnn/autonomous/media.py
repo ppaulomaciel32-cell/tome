@@ -48,6 +48,19 @@ class Covers:
         archive=image.copy();archive.thumbnail((3840,3840),Image.Resampling.LANCZOS)
         self.store(archive,name,'-4k.jpg',quality=90,optimize=True,progressive=True)
         return self.site(image,name)
+    def source_photo(self,sources,public):
+        """Primeira foto oficial utilizável entre as fontes; logotipo e ícone ficam de fora."""
+        from .collection import official_photo
+        for source in sources[:3]:
+            try:
+                found=official_photo(source,public)
+                if not found:continue
+                raw,credit=found
+                with Image.open(io.BytesIO(raw)) as probe:width,height=probe.size
+                if width<800 or height<400 or not 1.2<=width/height<=2.4:continue
+                return self.photo(raw),credit
+            except Exception:continue
+        return None
     def art(self,title,locality):
         if not self.enabled: raise AgentError('Armazenamento de capas não configurado.')
         title=' '.join(str(title).split())[:300];accent=ACCENT.get(locality,ACCENT['regiao'])
@@ -67,8 +80,10 @@ class Covers:
                     if line: lines.append(line)
                     line=word
             if line: lines.append(line)
-            if len(lines)<=5: break
-        if len(lines)>5: lines=lines[:5];lines[-1]=lines[-1].rstrip(' ,;:')+'…'
+            # O título termina antes do rodapé (y=790): nunca invade o endereço do site.
+            if len(lines)<=5 and len(lines)*int(size*1.2)<=430: break
+        while len(lines)*int(size*1.2)>430: lines=lines[:-1]
+        if lines and ' '.join(lines)!=title: lines[-1]=lines[-1].rstrip(' ,;:.')+'…'
         y=360
         for row in lines:
             draw.text((110,y),row,anchor='la',font=face,fill='#ffffff');y+=int(size*1.2)

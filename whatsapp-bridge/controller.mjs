@@ -75,7 +75,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     if(participants.some(p=>![p.id,p.pn,p.lid].some(id=>id && (allowed.has(id) || ownIds.includes(id))))) fail(409,'unexpected_members','O grupo contém alguém além dos editores autorizados e do robô. Confira os participantes.');
     return allowed;
   }
-  async function sendGroup(text,image=null) {
+  async function sendGroup(text,image=null,mimetype='image/png') {
     const group=selection(); if(!group) fail(409,'no_group','Escolha o grupo autorizado.');
     await members(await metadata(group.id));
     const sends=vault.get('sends',[]).filter(t=>t>now()-3600000);
@@ -84,7 +84,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     sends.push(now());vault.put('sends',sends);
     // Reserva antes do envio; a resposta incerta também não pode virar nova pauta.
     vault.put('outboundHashes',[...vault.get('outboundHashes',[]).filter(x=>x.at>now()-72*3600000),{hash:messageDigest(text),at:now()}].slice(-100));
-    const sent=await socket.sendMessage(group.id,image?{image,caption:text,mimetype:'image/png'}:{text});
+    const sent=await socket.sendMessage(group.id,image?{image,caption:text,mimetype}:{text});
     if(!sent?.key?.id)fail(503,'delivery_uncertain','O envio não foi confirmado. Confira o grupo e o painel antes de tentar de novo.');
     if(sent?.key?.id && sent.message) vault.put('outbound', [...vault.get('outbound',[]).filter(m=>m.at>now()-3600000),{id:sent.key.id,group:group.id,message:sent.message,at:now()}].slice(-20));
     return {sent:true};
@@ -103,6 +103,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const content=message.message?.documentWithCaptionMessage?.message || message.message || {};
       const image=content.imageMessage || (mediaTypes.includes(content.documentMessage?.mimetype)?content.documentMessage:null);
       const text=content.conversation ?? content.extendedTextMessage?.text ?? image?.caption;
+      // Foto ou texto que o próprio robô mandou (prévia com capa, Stories) nunca vira pauta nem pede legenda.
+      if(key.fromMe && (vault.get('outbound',[]).some(x=>x.id===key.id) || (typeof text==='string' && vault.get('outboundHashes',[]).some(x=>x.hash===messageDigest(text) && x.at>now()-72*3600000))))continue;
       if(image && config.manualEnabled && (typeof text!=='string' || text.trim().length<20)){
         const hint=createHash('sha256').update(group.id+'|foto|'+key.id).digest('hex');
         if(vault.claim(hint,now()))try{await sendGroup('Recebi a foto, mas sem a pauta. Mande a foto de novo com a pauta escrita na legenda (pelo menos uma frase), que eu preparo a matéria com ela na capa.');}catch{}
@@ -362,7 +364,8 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         || typeof body.resumo!=='string' || body.resumo.length<10 || body.resumo.length>500 || !Object.hasOwn(locals,body.localidade)
         || !Array.isArray(body.sources) || body.sources.length<1 || body.sources.length>5
         || (body.sources.length===1 ? !['official','owner'].includes(body.single) : body.single!==undefined)
-        || ![undefined,'photo','art'].includes(body.cover) || (body.replaces!==undefined && !validId.test(body.replaces))
+        || ![undefined,'photo','art','source'].includes(body.cover) || (body.replaces!==undefined && !validId.test(body.replaces))
+        || (body.coverCredit!==undefined && (body.cover!=='source' || typeof body.coverCredit!=='string' || body.coverCredit.length<2 || body.coverCredit.length>120))
         || (body.coverUrl!==undefined && !/^https:\/\/bot\.tomezap\.com\.br\/imagens\/[a-f0-9]{32}-1600\.jpg$/.test(body.coverUrl)))fail(400,'invalid_preview','Prévia inválida.');
       for(const source of body.sources){
         let u;try{u=new URL(source.url);}catch{fail(400,'invalid_preview','Fonte inválida.');}
@@ -379,12 +382,19 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
         :body.single==='official'?'Fonte única (oficial): '+clean(body.sources[0].name)+'\n'+body.sources[0].url
         :'Fontes: '+body.sources.length+'\n'+body.sources.map(s=>clean(s.name)+': '+s.url).join('\n');
       const replaced=body.replaces?previews.number(body.replaces):null;
-      await sendGroup('RASCUNHO Nº '+n+(replaced?' (corrige o nº '+replaced+')':'')+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
+      const coverLabel={photo:'foto enviada por você',source:'foto oficial da fonte'+(body.coverCredit?' ('+clean(body.coverCredit)+')':''),art:'arte do jornal com a manchete'}[body.cover];
+      const previewText='RASCUNHO Nº '+n+(replaced?' (corrige o nº '+replaced+')':'')+' — aguardando revisão\n#'+body.id+'\n\n'+clean(body.titulo)+'\n\n'+clean(body.resumo)
         +(body.investigative===true?'\n\nA APURAR: mudança em documento não comprova irregularidade. Confira no texto o que está documentado e o que falta confirmar.':'')
         +'\n\nLocalidade: '+locals[body.localidade]+'\n'+origin
-        +(body.cover?'\nCapa: '+(body.cover==='photo'?'foto enviada por você':'arte do jornal com a manchete')+(body.coverUrl?'\n'+body.coverUrl:''):'')
+        +(body.cover?'\nCapa: '+coverLabel:'')
         +'\n\nTexto completo (login necessário): https://tomezap.com.br/admin/#rascunho/'+body.id
-        +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar, responda APROVAR '+n+' (ou "pode publicar"). Para descartar, REJEITAR '+n+'.':'\n\nNada publicado. Comandos de aprovação serão ativados nos próximos marcos.'));
+        +(config.manualEnabled?'\n\nLeia o texto completo. Para publicar, responda APROVAR '+n+' (ou "pode publicar"). Para descartar, REJEITAR '+n+'.':'\n\nNada publicado. Comandos de aprovação serão ativados nos próximos marcos.');
+      // Com capa, a prévia chega como foto com a legenda; texto longo vai logo abaixo.
+      if(body.coverUrl && previewText.length<=1000)await sendGroup(previewText,{url:body.coverUrl},'image/jpeg');
+      else{
+        if(body.coverUrl)try{await sendGroup('Capa do rascunho nº '+n+' · '+clean(body.titulo).slice(0,120),{url:body.coverUrl},'image/jpeg');}catch{}
+        await sendGroup(previewText);
+      }
       vault.put(key,'sent');return {sent:true};
     }),
     notice:body=>run(async()=>{

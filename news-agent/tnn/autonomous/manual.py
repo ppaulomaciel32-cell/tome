@@ -59,6 +59,10 @@ class Manual:
                 credit=' '.join(str(job.get('credit') or '').split())[:120]
                 return {'capa_url':url,'capa_credito':credit if len(credit)>=2 else 'Foto enviada à Redação Tome Nota'},'photo'
             except Exception:pass
+        try:
+            found=self.covers.source_photo(draft.get('fontes') or [],self.collector.public)
+            if found:return {'capa_url':found[0],'capa_credito':found[1]},'source'
+        except Exception:pass
         try:return {'capa_url':self.covers.art(draft['titulo'],draft['localidade'])},'art'
         except Exception:return None,None
     def check_deploy(self):
@@ -232,7 +236,8 @@ class Manual:
             self.bridge.call('/preview',{'id':memo['saved'],'revision':1,'titulo':draft['titulo'],'resumo':draft['resumo'],'localidade':draft['localidade'],
                 'sources':[{'name':s['name'],'url':s['url']} for s in memo['sources']],
                 **({'single':'owner' if memo['sources'][0].get('owner') else 'official'} if len(memo['sources'])==1 else {}),
-                **({'cover':memo['cover'],'coverUrl':draft['capa_url']} if memo.get('cover') else {})})
+                **({'cover':memo['cover'],'coverUrl':draft['capa_url']} if memo.get('cover') else {}),
+                **({'coverCredit':draft['capa_credito']} if memo.get('cover')=='source' else {})})
             result={'code':'draft_ready','draftId':memo['saved']};return result
         except QuotaLimit:result={'code':'quota_limit'};return result
         except Exception:

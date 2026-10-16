@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, urljoin
 from defusedxml import ElementTree
 from ..core import AgentError, normalize, required
 from ..providers import Net
@@ -32,7 +32,7 @@ class TextOnly(HTMLParser):
         if not self.skip: self.parts.append(data)
 
 class PageInfo(HTMLParser):
-    def __init__(self):super().__init__();self.title='';self.published='';self.in_title=False
+    def __init__(self):super().__init__();self.title='';self.published='';self.in_title=False;self.image=''
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
         if tag=='title':self.in_title=True
@@ -40,6 +40,7 @@ class PageInfo(HTMLParser):
             name=attrs.get('property') or attrs.get('name')
             if name in ('article:published_time','datePublished','pubdate','date') and not self.published:self.published=attrs.get('content','')
             if name=='og:title':self.title=attrs.get('content','')
+            if name in ('og:image','og:image:secure_url','twitter:image') and not self.image:self.image=attrs.get('content','')
         if tag=='time' and not self.published:self.published=attrs.get('datetime','')
     def handle_endtag(self,tag):
         if tag=='title':self.in_title=False
@@ -78,6 +79,28 @@ def printed_date(html):
     if not found:return None
     try:return datetime(int(found.group(3)),int(found.group(2)),int(found.group(1)),tzinfo=timezone(timedelta(hours=-3))).astimezone(timezone.utc)
     except ValueError:return None
+
+def same_site(image_host,page_host):
+    """Imagem do próprio órgão: mesmo endereço ou subdomínio da mesma instituição."""
+    if not image_host or not page_host:return False
+    base=page_host[4:] if page_host.startswith('www.') else page_host
+    if image_host==page_host or image_host==base or image_host.endswith('.'+base):return True
+    parts=base.split('.')
+    # agenciabrasil.ebc.com.br -> ebc.com.br; nunca sobe até com.br ou gov.br.
+    parent='.'.join(parts[1:]) if len(parts)>=4 or (len(parts)==3 and not base.endswith(('.com.br','.gov.br','.org.br','.leg.br','.jus.br','.mp.br'))) else ''
+    return bool(parent) and parent.count('.')>=1 and image_host.endswith('.'+parent)
+
+def official_photo(source,public):
+    """Foto de divulgação da página da fonte oficial (og:image). Nunca de portal comercial."""
+    if source.get('official') is not True or source.get('owner'):return None
+    page=urlsplit(source.get('url',''));host=page.hostname
+    if page.scheme!='https' or not host:return None
+    html=public.get(source['url'],(host,)).decode('utf-8',errors='replace');info=PageInfo();info.feed(html)
+    image=urljoin(source['url'],info.image.strip()) if info.image.strip() else ''
+    parts=urlsplit(image)
+    if parts.scheme!='https' or not same_site(parts.hostname,host) or len(image)>1500:return None
+    raw=public.get(image,(parts.hostname,),IMAGE_TYPES,15*1024*1024)
+    return raw,str(source.get('name') or host)[:90]+'/Divulgação'
 
 OWNER_URL='https://tomezap.com.br/sobre/'
 def owner_material(text,now):
@@ -119,8 +142,10 @@ def allowed(url,domains):
         return p.scheme=='https' and p.hostname in domains and not p.username and not p.password and p.port in (None,443)
     except (ValueError,TypeError): return False
 
+TEXT_TYPES=('xml','html','text/plain')
+IMAGE_TYPES=('image/jpeg','image/png','image/webp')
 class PublicFetch:
-    def get(self,url,domains):
+    def get(self,url,domains,kinds=TEXT_TYPES,limit=1000000):
         if not allowed(url,domains): raise AgentError('Fonte fora da lista aprovada.')
         p=urlsplit(url)
         try: addresses=socket.getaddrinfo(p.hostname,443,type=socket.SOCK_STREAM)
@@ -136,16 +161,16 @@ class PublicFetch:
             response=connection.getresponse()
             if response.status != 200: raise AgentError('Fonte indisponível ou redirecionada.',response.status>=500 or response.status==429)
             content_type=response.getheader('Content-Type','').lower()
-            if not any(t in content_type for t in ('xml','html','text/plain')): raise AgentError('Formato de fonte não aceito.')
+            if not any(t in content_type for t in kinds): raise AgentError('Formato de fonte não aceito.')
             chunks=[];size=0;deadline=time.monotonic()+10
             while True:
                 remaining=deadline-time.monotonic()
                 if remaining<=0: raise AgentError('Tempo limite ao ler a fonte.',True)
                 if connection.sock: connection.sock.settimeout(min(10,remaining))
-                chunk=response.read1(min(16384,1000001-size))
+                chunk=response.read1(min(65536,limit+1-size))
                 if not chunk: break
                 chunks.append(chunk);size+=len(chunk)
-                if size>1000000: raise AgentError('Fonte acima do limite de leitura.')
+                if size>limit: raise AgentError('Fonte acima do limite de leitura.')
             return b''.join(chunks)
         except (OSError,http.client.HTTPException): raise AgentError('Tempo limite ao consultar uma fonte.',True) from None
         finally: connection.close()

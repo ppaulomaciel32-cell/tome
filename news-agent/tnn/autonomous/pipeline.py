@@ -75,9 +75,14 @@ class Pipeline:
             draft=self.retry(write);draft['id']=str(uuid.uuid4());self.state.reset('redacao');stage='rascunho'
             cover=None
             if self.covers and self.covers.enabled:
-                # Pauta do ciclo automático não tem foto: capa é a arte do jornal.
-                try: draft['capa_url']=self.covers.art(draft['titulo'],draft['localidade']);cover='art'
-                except Exception: draft.pop('capa_url',None)
+                # Sem foto do editor: foto oficial da fonte (Divulgação); se não houver, arte do jornal.
+                found=None
+                try: found=self.covers.source_photo(sources,self.collector.public)
+                except Exception: found=None
+                if found: draft['capa_url'],draft['capa_credito']=found;cover='source'
+                else:
+                    try: draft['capa_url']=self.covers.art(draft['titulo'],draft['localidade']);cover='art'
+                    except Exception: draft.pop('capa_url',None)
             self.report_stage(cycle,stage,len(context['drafts']))
             if not lock.owned() or self.now()-started>660: raise AgentError('Ciclo excedeu o tempo disponível.')
             result=self.retry(lambda:self.drafts.call({'action':'save','cycle_id':cycle,'draft':draft,'seen':seen,'max_pending':c.max_pending}))
@@ -88,7 +93,8 @@ class Pipeline:
                 'localidade':draft['localidade'],'sources':[{'name':s['name'],'url':s['url']} for s in sources],
                 **({'investigative':True} if candidate.get('investigative') else {}),
                 **({'single':'official'} if len(sources)==1 else {}),
-                **({'cover':cover,'coverUrl':draft['capa_url']} if cover else {})})
+                **({'cover':cover,'coverUrl':draft['capa_url']} if cover else {}),
+                **({'coverCredit':draft['capa_credito']} if cover=='source' else {})})
             self.state.reset('previa');return {'status':'draft_created','id':draft_id}
         except QuotaLimit:
             status='skipped';code='quota_limit';return {'status':code}

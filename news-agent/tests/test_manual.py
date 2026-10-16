@@ -122,6 +122,35 @@ class ManualTests(unittest.TestCase):
             self.assertEqual(self.agent.process({**self.job,'photo':True})['code'],'draft_ready')
             draft=self.saved[0]['draft'];self.assertRegex(draft['capa_url'],PUBLIC.pattern);self.assertNotIn('capa_credito',draft)
             self.assertEqual(next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview')['cover'],'art')
+    def test_official_source_photo_beats_art_and_carries_divulgacao_credit(self):
+        from tnn.autonomous.collection import same_site
+        self.assertTrue(same_site('www.complexodopecem.com.br','www.complexodopecem.com.br'));self.assertTrue(same_site('imagens.ebc.com.br','agenciabrasil.ebc.com.br'))
+        for img,page in (('evil.com.br','www.complexodopecem.com.br'),('outro.com.br','agenciabrasil.ebc.com.br'),('cdn.qualquer.com','www.ce.gov.br'),(None,'x.gov.br')):self.assertFalse(same_site(img,page))
+        with tempfile.TemporaryDirectory() as folder:
+            photo=picture((1600,900));pages={'https://a.example/ponte':b'<html><meta property="og:image" content="/fotos/ponte.jpg"><title>x</title></html>','https://a.example/fotos/ponte.jpg':photo}
+            public=Mock();public.get.side_effect=lambda url,domains,*a,**k:pages[url]
+            self.collector.public=public;self.agent.covers=Covers(folder,BASE)
+            row={**ROWS[0],'official':True,'url':'https://a.example/ponte','name':'Órgão A'};self.writer.write.return_value={**article(),'fontes':[row]};self.collector.manual.return_value=[row]
+            self.assertEqual(self.agent.process(self.job)['code'],'draft_ready')
+            draft=self.saved[0]['draft'];self.assertRegex(draft['capa_url'],PUBLIC.pattern);self.assertEqual(draft['capa_credito'],'Órgão A/Divulgação')
+            preview=next(c.args[1] for c in self.bridge.call.call_args_list if c.args[0]=='/preview');self.assertEqual(preview['cover'],'source');self.assertEqual(preview['coverCredit'],'Órgão A/Divulgação')
+            # Logotipo quadrado, portal comercial ou imagem de outro site: fica a arte do jornal.
+            for change in ({'https://a.example/fotos/ponte.jpg':picture((600,600))},):
+                self.setUp();pages.update(change);self.collector.public=public;self.agent.covers=Covers(folder,BASE)
+                self.writer.write.return_value={**article(),'fontes':[row]};self.collector.manual.return_value=[row]
+                self.agent.process(self.job);self.assertNotIn('capa_credito',self.saved[0]['draft'])
+            self.setUp();self.collector.public=public;self.agent.covers=Covers(folder,BASE);portal={**row,'official':None}
+            self.writer.write.return_value={**article(),'fontes':[portal]};self.collector.manual.return_value=[portal,ROWS[1]]
+            self.agent.process(self.job);self.assertNotIn('capa_credito',self.saved[0]['draft'])
+    def test_art_headline_never_reaches_the_footer(self):
+        from PIL import ImageDraw,ImageFont
+        with tempfile.TemporaryDirectory() as folder:
+            covers=Covers(folder,BASE)
+            for title in ('Governo do Ceará conclui iluminação de 20 quilômetros da CE-155 entre BR-222 e Porto do Pecém','Palavra '*60):
+                url=covers.art(title,'pecem')
+                with Image.open(os.path.join(folder,url.rsplit('/',1)[1])) as image:
+                    band=image.crop((110,790,1500,815)).convert('L')
+                    self.assertLess(band.getextrema()[1],110,'texto da manchete invadiu a faixa do rodapé')
     def test_without_cover_storage_the_draft_keeps_the_default_brand_image(self):
         self.assertEqual(self.agent.process({**self.job,'photo':True})['code'],'draft_ready')
         self.assertNotIn('capa_url',self.saved[0]['draft']);self.bridge.media.assert_not_called()

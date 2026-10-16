@@ -372,8 +372,24 @@ test('prévia informa a capa e só aceita endereço de imagem do próprio servid
   const f=await fixture(t);await f.connect();await f.bind();
   const url='https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg';
   for(const bad of [{cover:'video'},{coverUrl:'https://evil.example/x.jpg'},{coverUrl:'https://bot.tomezap.com.br/imagens/../segredo-1600.jpg'}])await assert.rejects(f.c.preview({...draftPreview(),...bad}),e=>e.code==='invalid_preview');
-  await f.c.preview({...draftPreview(),cover:'photo',coverUrl:url});assert.match(f.sends.at(-1).msg.text,/Capa: foto enviada por você/);assert.equal(f.sends.at(-1).msg.text.includes(url),true);
+  for(const bad of [{cover:'art',coverCredit:'Órgão/Divulgação'},{cover:'source',coverCredit:'x'}])await assert.rejects(f.c.preview({...draftPreview(),...bad}),e=>e.code==='invalid_preview');
+  // Com capa, a prévia chega como foto, com o texto na legenda.
+  await f.c.preview({...draftPreview(),cover:'photo',coverUrl:url});let last=f.sends.at(-1).msg;
+  assert.equal(last.image.url,url);assert.equal(last.mimetype,'image/jpeg');assert.match(last.caption,/Capa: foto enviada por você/);
+  await f.c.preview({...draftPreview(),cover:'source',coverUrl:url,coverCredit:'Complexo do Pecém/Divulgação'});last=f.sends.at(-1).msg;
+  assert.match(last.caption,/Capa: foto oficial da fonte \(Complexo do Pecém\/Divulgação\)/);
+  // Legenda longa: foto com título curto e o texto completo em seguida.
+  const before=f.sends.length;await f.c.preview({...draftPreview(),cover:'art',coverUrl:url,titulo:'Manchete longa de teste '.repeat(12).trim(),resumo:'Resumo longo da matéria. '.repeat(19)});
+  assert.equal(f.sends.length,before+2);assert.equal(f.sends.at(-2).msg.image.url,url);assert.match(f.sends.at(-1).msg.text,/Capa: arte do jornal/);
   await f.c.preview({...draftPreview(),cover:'art'});assert.match(f.sends.at(-1).msg.text,/Capa: arte do jornal/);
+});
+test('foto que o próprio robô mandou volta pelo WhatsApp e não vira pauta nem pedido de legenda',async t=>{
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
+  await f.c.preview({...draftPreview(),cover:'photo',coverUrl:'https://bot.tomezap.com.br/imagens/'+'a'.repeat(32)+'-1600.jpg'});
+  const sent=f.sends.length,caption=f.sends.at(-1).msg.caption;
+  f.callbacks.onMessages({type:'notify',messages:[{key:{remoteJid:group,id:'sent-'+sent,fromMe:true},messageTimestamp:Date.now()/1000,message:{imageMessage:{mimetype:'image/jpeg',caption}}}]});await f.c.idle();
+  f.callbacks.onMessages({type:'notify',messages:[{key:{remoteJid:group,id:'eco-sem-id',fromMe:true},messageTimestamp:Date.now()/1000,message:{imageMessage:{mimetype:'image/jpeg',caption}}}]});await f.c.idle();
+  assert.equal(f.sends.length,sent);assert.equal(f.c.status().manual.queued,0);
 });
 
 test('correção: CORRIGIR e MANCHETE viram pedido de edição; "MANCHETE: texto" continua sendo pauta',()=>{
