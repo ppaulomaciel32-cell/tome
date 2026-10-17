@@ -1,0 +1,10 @@
+**
+!radar-viral/
+!radar-viral/requirements.txt
+!radar-viral/tnn_viral/
+!radar-viral/tnn_viral/**
+!news-agent/
+!news-agent/tnn/
+!news-agent/tnn/**
+**/__pycache__/**
+**/.env*

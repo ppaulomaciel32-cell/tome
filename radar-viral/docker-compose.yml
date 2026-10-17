@@ -1,0 +1,30 @@
+# Overlay adicional; não substitui os três arquivos Compose existentes.
+services:
+  radar-viral:
+    build:
+      context: ..
+      dockerfile: radar-viral/Dockerfile
+    # Caminhos relativos ao primeiro arquivo (panel-api/docker-compose.yml).
+    env_file: ../radar-viral/.env
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    expose: ["3092"]
+    networks: [default, redacao_privada]
+    depends_on:
+      redacao-redis:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.35
+    healthcheck:
+      test: ["CMD","python","-m","tnn_viral.worker","--healthcheck"]
+      interval: 30s
+      timeout: 8s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "3m", max-file: "2"}
