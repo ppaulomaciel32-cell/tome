@@ -139,8 +139,17 @@ export function createPanelServer({config = loadConfig(), fetchImpl = fetch, now
       const waRoute=waPaths.get(path);
       const draftRoute=path.match(/^\/painel-api\/drafts(?:\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}))?$/);
       const decisionRoute=path.match(/^\/painel-api\/drafts\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\/decision$/);
-      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap','/painel-api/workflow','/painel-api/analytics','/painel-api/newsroom','/painel-api/infra'].includes(path) && !waRoute && !draftRoute && !decisionRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
+      const radarRoute=path==='/painel-api/radar';
+      if (!['/painel-api/session','/painel-api/logout','/painel-api/bootstrap','/painel-api/workflow','/painel-api/analytics','/painel-api/newsroom','/painel-api/infra'].includes(path) && !waRoute && !draftRoute && !decisionRoute && !radarRoute) throw new PanelError(404, 'not_found', 'Endereço não encontrado.');
       const session = await auth.session(req.headers.cookie);
+      if(radarRoute){
+        limit('radar:'+session.user.id,12,60000);
+        if(req.method==='GET')return send(200,await wa('/radar'));
+        if(req.method!=='POST')throw new PanelError(405,'method_denied','Operação não permitida.');
+        if(!sameSecret(req.headers['x-csrf-token'],session.csrf))throw new PanelError(403,'csrf_denied','Atualize a página antes de continuar.');
+        const body=await jsonBody(req);const actor=createHash('sha256').update('painel-usuario|'+session.user.id).digest('hex');
+        return send(200,await wa('/radar',{kind:body.kind,city:body.city,id:body.id,revision:body.revision,action:body.action,titleIndex:body.titleIndex,instruction:body.instruction,nonce:body.nonce,actor}));
+      }
       if(path==='/painel-api/workflow'){
         if(req.method!=='GET')throw new PanelError(405,'read_only','Esta sala só acompanha o trabalho. Nenhuma publicação ou comando é executado aqui.');
         limit('workflow:'+session.user.id,10,60000);

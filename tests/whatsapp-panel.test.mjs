@@ -19,6 +19,14 @@ test('QR, código e grupos exigem sessão; página redireciona visitante ao logi
   for(const path of ['pairing','groups','status'])assert.equal((await f.request('/painel-api/whatsapp/'+path)).status,401);
   const page=await f.request('/conectar',{origin:null});assert.equal(page.status,303);assert.equal(page.headers.get('location'),'https://tomezap.com.br/admin/#whatsapp');assert.equal(f.calls.length,0);
 });
+test('Radar no painel exige sessão, origem e CSRF; ator não vem do navegador',async t=>{
+  const f=await fixture(t);
+  assert.equal((await f.request('/painel-api/radar')).status,401);
+  assert.equal((await f.request('/painel-api/radar',{method:'POST',cookie:f.cookie,body:{kind:'scan'}})).status,403);
+  assert.equal(f.calls.length,0);
+  const response=await f.request('/painel-api/radar',{method:'POST',cookie:f.cookie,csrf:f.csrf,body:{kind:'scan',city:'Caucaia',nonce:crypto.randomUUID(),actor:'forged'}});
+  assert.equal(response.status,200);assert.equal(f.calls[0].path,'/radar');assert.match(f.calls[0].body.actor,/^[a-f0-9]{64}$/);assert.notEqual(f.calls[0].body.actor,'forged');
+});
 test('editor vê somente estado, nunca QR nem controles de conexão',async t=>{
   const f=await fixture(t,editor);const status=await f.request('/painel-api/whatsapp/status',{cookie:f.cookie});assert.equal(status.status,200);assert.equal('qr' in await status.json(),false);
   for(const path of ['pairing','groups'])assert.equal((await f.request('/painel-api/whatsapp/'+path,{cookie:f.cookie})).status,403);

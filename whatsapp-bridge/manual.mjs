@@ -49,6 +49,7 @@ export function previewRegistry(vault,now){
 export function manualQueue(vault,now,fail){
   const list=()=>vault.get('manual:queue',[]);
   return {
+    find:receipt=>list().find(j=>j.receipt===receipt) || null,
     add(command,receipt,editorHash){
       const rows=list().filter(r=>r.state!=='done' || now()-r.created<72*3600000);
       if(rows.some(r=>r.receipt===receipt))return {duplicate:true};

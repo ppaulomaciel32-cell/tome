@@ -26,13 +26,20 @@ test('nono dígito: equivalência restrita a celular brasileiro, sem alterar LID
   assert.throws(()=>loadBridgeConfig({...base,WA_ALLOWED_SENDERS:'5585987654321,558587654321'}));
 });
 const draftPreview=()=>({id:crypto.randomUUID(),revision:1,titulo:'Simulação de prévia privada',resumo:'Este conteúdo sintético não representa uma notícia real.',localidade:'regiao',sources:[{name:'Fonte A',url:'https://a.example/test'},{name:'Fonte B',url:'https://b.example/test'}]});
+test('Radar: somente remetente autorizado do grupo confirmado dispara a varredura',async t=>{
+  const requests=[];const f=await fixture(t,{cfg:{...config(),radarEnabled:true,pipelineToken:'b'.repeat(64)},radarFetch:async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return Response.json({queued:true});}});
+  await f.connect();await f.bind();
+  await f.message({sender:'999999@lid',text:'RADAR caucaia'});assert.equal(requests.length,0);
+  await f.message({text:'RADAR caucaia',id:'viral-test'});assert.equal(requests.length,1);assert.equal(requests[0].body.city,'caucaia');assert.match(f.sends.at(-1).msg.text,/Radar rodando/);
+  await f.message({text:'RADAR caucaia',id:'viral-test'});assert.equal(requests.length,1);
+});
 async function vaultFixture(t){const directory=await mkdtemp(join(tmpdir(),'tnn-wa-'));const key=randomBytes(32).toString('hex');let vault=openVault({directory,key,codec:BufferJSON});t.after(async()=>{try{vault.close();}catch{}await rm(directory,{recursive:true,force:true});});return {directory,key,vault,reopen(){vault.close();vault=openVault({directory,key,codec:BufferJSON});return vault;}};}
-async function fixture(t,{cfg=config(),wrongNumber=false,mediaStore=null}={}){
+async function fixture(t,{cfg=config(),wrongNumber=false,mediaStore=null,radarFetch}={}){
   const v=await vaultFixture(t);const auth=v.vault.auth(()=>({registered:false}),value=>value);
   let callbacks,connections=0,time=Date.now();const sends=[],timers=[];
   let meta={id:group,subject:'Comando Tome Nota',participants:[{id:number+'@s.whatsapp.net'},{id:'100001@lid',phoneNumber:owner+'@s.whatsapp.net'},{id:'100002@lid',phoneNumber:editor+'@s.whatsapp.net'}]};
   const socket={user:{id:(wrongNumber?owner:number)+':1@s.whatsapp.net'},async groupMetadata(id){return {...meta,id};},async groupFetchAllParticipating(){return {[group]:meta,other:{id:'123456789@g.us',subject:'Outro grupo',participants:[]}};},async resolveLid(pn){return pn===owner+'@s.whatsapp.net'?'100001@lid':'100002@lid';},async requestPairingCode(pn){assert.equal(pn,number);return 'ABCD1234';},async downloadMedia(){if(socket.mediaError)throw Error('fixture');return socket.media;},async sendMessage(id,msg){sends.push({id,msg});return {key:{id:'sent-'+sends.length},message:{conversation:msg.text}};},end(){}};
-  const c=createController({config:cfg,vault:v.vault,auth,mediaStore,now:()=>time,qrEncoder:async()=> 'data:image/png;base64,Zml4dHVyZQ==',socketFactory:async args=>{callbacks=args;connections++;return socket;},schedule:(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;},cancel:()=>{}});
+  const c=createController({config:cfg,vault:v.vault,auth,mediaStore,radarFetch,now:()=>time,qrEncoder:async()=> 'data:image/png;base64,Zml4dHVyZQ==',socketFactory:async args=>{callbacks=args;connections++;return socket;},schedule:(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;},cancel:()=>{}});
   t.after(()=>c.close());
   const update=async value=>{callbacks.onUpdate(value);await c.idle();};
   const connect=async()=>{await c.start({confirmDedicated:true});await update({connection:'open'});};

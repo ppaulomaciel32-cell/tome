@@ -2,10 +2,12 @@ import {icon} from './icons.mjs';
 import {draftList,draftDetail} from './drafts.mjs';
 import {mountOperations} from './operations.mjs';
 import {mountAnalytics} from './analytics.mjs';
+import {mountViral} from './viral.mjs';
 import {scheduledHTML,mountSchedules} from './editor.mjs';
 import {statCards,mountOverviewStats,draftActionsHTML,mountDraftActions,mountInfra,infraPage,toolsPage} from './hub.mjs';
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export const modules = [
+  {id:'radar',label:'Pautas Radar',icon:'eye',eyebrow:'DESCOBERTA ANTES DA REDAÇÃO',description:'Sugestões com fontes para você escolher antes de redigir.',action:'Ver sugestões',title:'Pautas Radar.',detail:''},
   {id:'biblioteca', label:'Pautas e fotos', icon:'folder', eyebrow:'DA PAUTA À MATÉRIA', description:'Como mandar pauta, texto, link e foto para o robô.', action:'Ver como enviar', title:'Toda matéria começa no grupo.', detail:'Mande a pauta no grupo Comando Tome Nota. O robô apura, escreve, faz a capa e devolve a prévia para você aprovar aqui ou no WhatsApp.'},
   {id:'whatsapp', label:'WhatsApp', icon:'chat', eyebrow:'CONVERSA QUE VIRA NOTÍCIA', description:'Conexão do robô, grupo e comandos.', action:'Ver conexão', title:'Sua redação, na conversa.', detail:'O robô conversa pelo grupo Comando Tome Nota. Lá chegam as prévias e lá você aprova, rejeita ou pede correção.'},
   {id:'ferramentas', label:'Ferramentas', icon:'eye', eyebrow:'APURAÇÃO ALÉM DO ROBÔ', description:'Monitor de páginas, RSS, leitor de notícias, automações e Facebook.', action:'Abrir ferramentas', title:'Suas ferramentas.', detail:''},
@@ -57,6 +59,12 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
   const draw = (focus = false) => {
     cleanupPage();cleanupPage=()=>{};
     const id = location.hash.slice(1)==='audiencia'?'dashboard':location.hash.slice(1) || 'inicio';
+    if(id==='radar'){
+      cleanupPage=mountViral(main,{request:whatsappRequest,onAuthError,preview});
+      root.querySelector('#breadcrumb-current').textContent='Pautas Radar';
+      root.querySelectorAll('[data-nav]').forEach(a=>{if(a.dataset.nav==='radar')a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+      document.title='Pautas Radar · TomeZap';closeMenu();return;
+    }
     if(id==='dashboard' && !preview){
       cleanupPage=mountAnalytics(main,whatsappRequest,onAuthError);
       root.querySelector('#breadcrumb-current').textContent='Audiência';

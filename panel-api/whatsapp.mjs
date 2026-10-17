@@ -10,7 +10,7 @@ export function createWhatsAppClient(config,{fetchImpl=fetch}={}) {
     let data;try{data=await response.json();}catch{throw new PanelError(503,'bridge_unavailable','A conexão WhatsApp não respondeu corretamente.');}
     if(!response.ok){
       // Só encaminhar mensagens conhecidas do componente interno, nunca um erro bruto.
-      const codes=new Set(['awaiting_configuration','confirmation_required','manual_attention','pairing_not_ready','not_connected','invalid_group','group_locked','wrong_group','bot_not_member','editor_not_member','unexpected_members','no_group','send_limit','busy','bridge_unavailable','manual_disabled','no_preview','already_decided','invalid_decision','queue_full','needs_photo']);
+      const codes=new Set(['awaiting_configuration','confirmation_required','manual_attention','pairing_not_ready','not_connected','invalid_group','group_locked','wrong_group','bot_not_member','editor_not_member','unexpected_members','no_group','send_limit','busy','bridge_unavailable','manual_disabled','no_preview','already_decided','invalid_decision','queue_full','needs_photo','radar_disabled','radar_unavailable','radar_no_preview','radar_already_decided','radar_stale']);
       if(codes.has(data.code) && typeof data.message==='string' && data.message.length<=300)throw new PanelError(response.status,data.code,data.message);
       throw new PanelError(503,'bridge_unavailable','Confira a configuração da conexão WhatsApp no servidor.');
     }

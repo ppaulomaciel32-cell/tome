@@ -2,6 +2,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {manualQueue,previewRegistry,parseManual,messageDigest,commandUUID} from './manual.mjs';
 import {normalizeJid,identityJid,canonicalNumber,numberVariants} from './identity.mjs';
 import {MAX_MEDIA,mediaTypes,sniff} from './media.mjs';
+import {createViral} from './viral.mjs';
 export {normalizeJid} from './identity.mjs';
 
 export class BridgeError extends Error {
@@ -24,11 +25,11 @@ export function loadBridgeConfig(env = process.env) {
   if(editorialSigningKey && (!/^[a-f0-9]{64}$/.test(editorialSigningKey) || [pipelineToken,env.WA_BRIDGE_TOKEN].includes(editorialSigningKey)))throw Error('A assinatura editorial exige um segredo exclusivo.');
   return {enabled, number, allowedNumbers, groupName:'Comando Tome Nota', token:env.WA_BRIDGE_TOKEN,
     acceptOwnCommands:env.WA_ACCEPT_OWN_COMMANDS==='true',manualEnabled:env.WA_MANUAL_ENABLED==='true' && Boolean(pipelineToken),editorialSigningKey,
-    pipelineToken,mediaDirectory:env.WA_MEDIA_DIR || '',requirePhoto:env.WA_REQUIRE_PHOTO!=='false',
+    pipelineToken,mediaDirectory:env.WA_MEDIA_DIR || '',requirePhoto:env.WA_REQUIRE_PHOTO!=='false',radarEnabled:env.RADAR_ENABLED==='true',
     configured:enabled && Boolean(number && allowedNumbers.length), directory:env.WA_SESSION_DIR || '/data/session', key:env.WA_SESSION_KEY};
 }
 
-export function createController({config, vault, auth, socketFactory, qrEncoder, mediaStore = null, now = Date.now, schedule = setTimeout, cancel = clearTimeout}) {
+export function createController({config, vault, auth, socketFactory, qrEncoder, mediaStore = null, now = Date.now, schedule = setTimeout, cancel = clearTimeout,radarFetch=fetch}) {
   let socket = null, generation = 0, state = config.configured ? 'idle' : 'awaiting_configuration';
   if(vault.get('blocked'))state='needs_attention';
   let qr = null, pairingCode = null, pairingExpires = 0, retryTimer, attempt = 0, stopped = false, chain = Promise.resolve();
@@ -39,6 +40,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   const selection = ()=>vault.get('group',null);
   const manual=manualQueue(vault,now,fail);
   const previews=previewRegistry(vault,now);
+  const viral=createViral({config,vault,manual,sendGroup,fail,now,fetchImpl:radarFetch});
   const label=id=>{const n=previews.number(id);return n?'Rascunho nº '+n:'#'+id;};
   const needsPhoto=n=>'O rascunho nº '+n+' está sem foto, e no Tome Nota toda matéria sai com foto. Mande a foto aqui com a legenda FOTO '+n+' (ou FOTO '+n+': nome de quem fotografou), ou pelo painel em Rascunhos → Enviar foto de capa. Depois aprove a nova prévia.';
   const cycleState = ()=>{
@@ -135,6 +137,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const command=text.trim().toUpperCase();
       const identity=key.fromMe?identityJid(config.number+'@s.whatsapp.net'):sender;
       const receipt=createHash('sha256').update(group.id+'|'+identity+'|'+key.id).digest('hex');
+      if(await viral.receive({text,receipt,editorHash:messageDigest(identity)}))continue;
       const parsed=parseManual(text);
       if(config.manualEnabled && parsed){
         try{
@@ -259,6 +262,11 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       connectedAt,lastError,publicationEnabled:false,requiresApproval:true,cycle:cycleState(),cycleEvents:vault.get('cycleEvents',[]).slice(-12),events:vault.get('events',[]).slice(-5)};
   }
   return {
+    radarState:()=>viral.state(),
+    radarPanel:body=>run(()=>viral.panel(body)),
+    radarPreview:body=>run(()=>viral.preview(body)),
+    radarHandoff:body=>run(()=>viral.handoff(body)),
+    radarNotice:body=>run(()=>viral.notice(body)),
     status,
     health:()=>({ok:state==='connected' && Boolean(selection()) && (!config.pipelineToken || (!cycleState().stale && ['completed','skipped','queue_full'].includes(cycleState().state))),service:'tomezap-whatsapp',whatsapp:state,groupConfigured:Boolean(selection()),publicationEnabled:false,cycle:cycleState().state,cycleStale:cycleState().stale ?? false}),
     pipelineState:()=>({connected:state==='connected',groupConfigured:Boolean(selection())}),

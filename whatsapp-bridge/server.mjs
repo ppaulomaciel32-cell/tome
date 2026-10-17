@@ -26,6 +26,8 @@ export function createBridgeServer({controller,token,pipelineToken=''}) {
         'GET /newsroom':()=>controller.newsroom(),'POST /decision':body=>controller.panelDecision(body)
       };
       const producerRoutes={'GET /pipeline-state':()=>controller.pipelineState(),'POST /commands/claim':body=>controller.claimCommand(body),'POST /commands/result':body=>controller.commandResult(body),'POST /publication-status':body=>controller.publicationStatus(body),'POST /preview':body=>controller.preview(body),'POST /notice':body=>controller.notice(body),'POST /cycle-status':body=>controller.cycleStatus(body)};
+      routes['GET /radar']=()=>controller.radarState();routes['POST /radar']=body=>controller.radarPanel(body);
+      producerRoutes['POST /radar/preview']=body=>controller.radarPreview(body);producerRoutes['POST /radar/handoff']=body=>controller.radarHandoff(body);producerRoutes['POST /radar/notice']=body=>controller.radarNotice(body);
       if(producer && path==='/media' && req.method==='GET'){
         // Única resposta binária: a foto da pauta, só para a redação na rede interna.
         const data=controller.media(new URL(req.url,'http://bridge.invalid').searchParams.get('receipt'));
