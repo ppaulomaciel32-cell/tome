@@ -90,7 +90,7 @@ Opção A, em detalhe:
 - **Imagem:** o container oficial `diegosouzapw/omniroute`.
 - **Endereço:** ouvindo só dentro da VPS (`127.0.0.1` e a rede interna do Docker). O robô
   acessa em `http://omniroute:20128/v1`.
-- **Memória:** limite de 768 MB (a VPS tem cerca de 2,6 GB livres).
+- **Memória:** limite de 1 GB (usa cerca de 580 MB parado; a VPS tem cerca de 2 GB livres).
 - **Dados:** num volume próprio (`omniroute-data`). **Nunca** apagar com `down -v`.
 - **Painel:** você abre pelo mesmo túnel das ferramentas, no seu Mac
   (`http://127.0.0.1:20128`). É lá que cadastra a chave NVIDIA e o combo. **Eu não digito
@@ -269,15 +269,14 @@ O que **não** muda:
 ## 9. Checklist para ligar
 
 - [ ] Você: proteger o OmniRoute do Mac com chave (item 8.1).
-- [ ] Você: me autorizar a instalar o OmniRoute na VPS e a mudar o código do robô.
-- [ ] Eu: instalar o OmniRoute na VPS (só interno), sem tocar no que já roda.
-- [ ] Você: abrir o painel do OmniRoute da VPS pelo túnel e cadastrar a chave NVIDIA.
+- [x] Autorizado em 18/10 ("pode instalar").
+- [x] OmniRoute 3.8.48 na VPS (`omniroute`, painel em `127.0.0.1:18105`, túnel no `abrir-ferramentas.sh`).
+- [x] Chave NVIDIA cadastrada no painel da VPS.
 - [x] Combo `tomenota-editorial` criado no OmniRoute do **Mac** em 18/10 (prompt + compressão desligada), testado: 4 de 4.
-- [ ] Repetir o combo no OmniRoute da **VPS** (dá para copiar do Mac).
-- [ ] Você: criar a chave de API do OmniRoute e salvar no robô pelo script que eu deixo
-      pronto (eu não vejo a chave).
-- [ ] Eu: subir o código novo, rodar os testes e reiniciar `redacao` e `radar-viral`
-      (com o seu OK).
+- [x] Combo `tomenota-editorial` criado também na **VPS** (mesmo prompt, compressão desligada).
+- [x] Chave `robo-tomenota` gravada no robô com `pbpaste | ssh … /root/tomezap-omniroute-chave.sh`.
+- [x] Código `bcf1816` na VPS; teste na VPS só pelo OmniRoute: matéria 23 s, correção 22 s, Radar 5 s.
+- [x] `LLM_PROVIDER=omniroute` ligado na redação e no Radar (Gemini de reserva).
 - [ ] Teste real: você manda uma pauta no grupo e confere a prévia com foto.
 - [ ] Se algo der errado: `LLM_PROVIDER=gemini` e tudo volta ao que era.
 

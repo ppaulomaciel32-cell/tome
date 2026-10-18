@@ -23,7 +23,8 @@ services:
     networks: [ia_saida, ia_privada]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 768m
+    # Uso medido na VPS: ~580 MB parado (Next.js + SQLite); folga para picos.
+    mem_limit: 1g
     cpus: 0.5
     logging:
       driver: json-file
