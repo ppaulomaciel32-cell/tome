@@ -1,0 +1,42 @@
+# Overlay opcional, depois dos arquivos base, whatsapp, redacao e radar-viral.
+# OmniRoute (roteador de IA) só para a redação e o Radar. Não muda serviços ou volumes anteriores.
+# Painel apenas por túnel SSH: 127.0.0.1:18105 na VPS. Nunca expor na internet.
+services:
+  omniroute:
+    image: diegosouzapw/omniroute:3.8.48
+    # Segredos do próprio OmniRoute (JWT, criptografia, senha inicial), fora do Git.
+    env_file: ../omniroute/.env
+    environment:
+      PORT: "20128"
+      HOSTNAME: 0.0.0.0
+      DATA_DIR: /app/data
+      REQUIRE_API_KEY: "true"
+      ALLOW_API_KEY_REVEAL: "false"
+      # O painel só abre por túnel em http://localhost; cookie Secure impediria o login.
+      AUTH_COOKIE_SECURE: "false"
+      OMNIROUTE_MEMORY_MB: "448"
+      NODE_OPTIONS: --max-old-space-size=448
+    restart: unless-stopped
+    init: true
+    volumes: [omniroute_dados:/app/data]
+    ports: ["127.0.0.1:18105:20128"]
+    networks: [ia_saida, ia_privada]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+  redacao:
+    networks: [ia_privada]
+  radar-viral:
+    networks: [ia_privada]
+volumes:
+  omniroute_dados:
+networks:
+  # Saída para os provedores de IA (NVIDIA etc.). Só o OmniRoute está nela.
+  ia_saida:
+  # Robô -> OmniRoute. Sem internet e sem painel-api/whatsapp.
+  ia_privada:
+    internal: true

@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 from ..core import AgentError, normalize, parse_article, slugify
-from ..providers import Gemini
+from ..providers import Gemini, editorial_engine
 
 def anchor(excerpt,source):
     """Devolve um trecho literal da fonte (texto ou título) ou None. Nunca aceita paráfrase."""
@@ -20,7 +20,8 @@ class Writer:
         'campo':{'type':'string'},'fonte_id':{'type':'string'},'trecho':{'type':'string'}},
         'required':['campo','fonte_id','trecho'],'additionalProperties':False}}
     success['required'].append('evidencias')
-    def __init__(self,gemini=None): self.gemini=gemini or Gemini()
+    # LLM_PROVIDER=omniroute usa o OmniRoute com o Gemini de reserva; sem a variável, só o Gemini.
+    def __init__(self,gemini=None): self.gemini=gemini or editorial_engine()
     @staticmethod
     def mode(sources):
         if len(sources)!=1:return 'multiplas_fontes'
@@ -39,7 +40,9 @@ class Writer:
         prompt=Path(__file__).with_name('editorial.txt').read_text()
         if investigation:
             prompt+='\nPAUTA A APURAR: título começa com "A apurar:". Separe no corpo "O que está documentado" e "O que falta confirmar". Não faça acusações nem conclua irregularidade a partir de edital, contrato ou mudança de página. Cada fato deve apontar documento e órgão. O que falta confirmar deve ser pergunta, nunca hipótese apresentada como fato.'
-        raw=self.gemini.generate(prompt,{'modo':mode,**request,'fontes':public},self.schema)
+        # tarefa/investigativa: o combo do OmniRoute troca o prompt do robô, então a regra vai no pedido.
+        task={'tarefa':'corrigir_materia' if 'versao_anterior' in request else 'redigir_materia',**({'investigativa':True} if investigation else {})}
+        raw=self.gemini.generate(prompt,{**task,'modo':mode,**request,'fontes':public},self.schema)
         article=parse_article(raw,sources)
         if investigation and (not article['titulo'].lower().startswith('a apurar:') or not all(s in article['texto'].lower() for s in ('o que está documentado','o que falta confirmar'))):
             raise AgentError('Pauta investigativa precisa separar documentos e perguntas ainda sem confirmação.')

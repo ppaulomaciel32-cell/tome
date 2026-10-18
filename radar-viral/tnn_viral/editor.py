@@ -1,7 +1,8 @@
 import json
+import os
 import re
 from pathlib import Path
-from tnn.providers import Net
+from tnn.providers import Net,OmniRoute,fallback_allowed
 from tnn.core import AgentError,gemini_model,required
 from .config import TRIGGERS,folded,PLACES
 from .sources import forbidden
@@ -13,8 +14,19 @@ class Editor:
         schema={'type':'object','properties':{'eligible':{'type':'boolean'},'gatilho':{'type':'string','enum':list(TRIGGERS)},
           'titulos':{'type':'array','items':{'type':'string'}},'hook':{'type':'string'},'angulo':{'type':'string'},
           'potencial':{'type':'integer'},'score_justificativa':{'type':'string'},'evidencia':{'type':'string'}},'required':['eligible']}
-        payload={'systemInstruction':{'parts':[{'text':Path(__file__).with_name('editorial.txt').read_text()}]},
-          'contents':[{'role':'user','parts':[{'text':json.dumps({'fonte':source,'cidade':PLACES[source['cidade_detectada']][0],'correcao':instruction},ensure_ascii=False)}]}],
+        prompt=Path(__file__).with_name('editorial.txt').read_text()
+        data={'tarefa':'radar_angulo','fonte':source,'cidade':PLACES[source['cidade_detectada']][0],'correcao':instruction}
+        if os.getenv('LLM_PROVIDER','gemini')=='omniroute':
+            # Mesmas travas de sempre; se o OmniRoute falhar, segue para o Gemini.
+            client=OmniRoute()
+            try:
+                raw=json.loads(client.generate(prompt,data,schema,0.4));self.tokens=client.tokens
+                return self.validate(raw,source)
+            except AgentError as exc:
+                if not fallback_allowed():raise AgentError('editor_invalid_output') from None
+                print(json.dumps({'event':'llm_fallback','from':'omniroute','reason':type(exc).__name__}),flush=True)
+        payload={'systemInstruction':{'parts':[{'text':prompt}]},
+          'contents':[{'role':'user','parts':[{'text':json.dumps(data,ensure_ascii=False)}]}],
           'generationConfig':{'temperature':0.4,'maxOutputTokens':1500,'candidateCount':1,'responseFormat':{'text':{'mimeType':'APPLICATION_JSON','schema':schema}}}}
         data=self.net.json('https://generativelanguage.googleapis.com/v1beta/models/'+gemini_model()+':generateContent',payload,
           {'x-goog-api-key':required('GEMINI_API_KEY')},timeout=45,max_bytes=40000)

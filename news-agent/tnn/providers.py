@@ -182,6 +182,69 @@ class Gemini:
             raise AgentError('O Gemini não entregou uma matéria completa ou liberada para uso.') from None
         return content
 
+def omniroute_url():
+    url=os.getenv('OMNIROUTE_URL','http://omniroute:20128/v1').strip().rstrip('/')
+    p=urllib.parse.urlsplit(url)
+    # HTTP só dentro da rede privada do Docker (nome sem ponto). Fora dela, apenas HTTPS.
+    internal=p.scheme=='http' and bool(p.hostname) and '.' not in p.hostname and not p.username and not p.password
+    if not (internal or https(url)) or p.query or p.fragment: raise AgentError('Endereço do OmniRoute inválido.')
+    return url
+
+class OmniRoute:
+    """Redação pelo OmniRoute (formato OpenAI). O prompt do jornal fica no combo; o robô ainda manda o seu."""
+    def __init__(self,opener=None): self.opener=opener or urllib.request.build_opener(NoRedirect);self.tokens=0
+    def generate(self,prompt,data,schema=None,temperature=0.3):
+        try: timeout=min(max(int(os.getenv('OMNIROUTE_TIMEOUT','120')),20),240)
+        except ValueError: raise AgentError('OMNIROUTE_TIMEOUT inválido.') from None
+        body=json.dumps({'model':os.getenv('OMNIROUTE_MODEL','tomenota-editorial'),'stream':False,'temperature':temperature,
+            'max_tokens':8000,'response_format':{'type':'json_object'},
+            'messages':[{'role':'system','content':prompt},{'role':'user','content':json.dumps(data,ensure_ascii=False)}]},ensure_ascii=False).encode()
+        headers={'Content-Type':'application/json','Authorization':'Bearer '+required('OMNIROUTE_API_KEY'),
+            # A compressão reescreve as fontes e quebraria as citações literais.
+            'x-omniroute-compression':'off'}
+        for attempt in (1,2):
+            try: return self.once(body,headers,timeout)
+            except UncertainRequest: raise
+            except AgentError:
+                # Resposta quebrada ou erro do provedor: uma nova tentativa, depois a reserva.
+                if attempt==2: raise
+    def once(self,body,headers,timeout):
+        request=urllib.request.Request(omniroute_url()+'/chat/completions',data=body,headers=headers,method='POST')
+        try:
+            with self.opener.open(request,timeout=timeout) as result: raw=result.read(400001)
+        except urllib.error.HTTPError as exc:
+            raise AgentError(f'OmniRoute respondeu HTTP {exc.code}.',exc.code>=500 or exc.code==429) from None
+        except (urllib.error.URLError,TimeoutError,socket.timeout,ConnectionError):
+            raise UncertainRequest('OmniRoute fora do ar ou sem resposta.',True) from None
+        try:
+            if len(raw)>400000: raise ValueError('size')
+            result=json.loads(raw);choice=result['choices'][0]
+            if choice.get('finish_reason')!='stop': raise ValueError('incomplete')
+            content=choice['message']['content']
+            if isinstance(content,list): content=''.join(p.get('text','') for p in content if isinstance(p,dict) and p.get('type','text')=='text')
+            text=re.sub(r'^```(?:json)?\s*|\s*```$','',content.strip())
+            if not isinstance(json.loads(text),dict): raise ValueError('object')
+            self.tokens=int((result.get('usage') or {}).get('total_tokens') or 0)
+        except (AttributeError,KeyError,IndexError,TypeError,ValueError):
+            raise AgentError('O OmniRoute não entregou um JSON completo.') from None
+        return text
+
+def fallback_allowed():
+    return os.getenv('LLM_FALLBACK','gemini')=='gemini' and bool(os.getenv('GEMINI_API_KEY','').strip())
+
+class Redator:
+    """OmniRoute primeiro; se falhar, o Gemini de sempre. As travas locais valem para os dois."""
+    def __init__(self,primary=None,fallback=None): self.primary=primary or OmniRoute();self.fallback=fallback or Gemini()
+    def generate(self,prompt,data,schema):
+        try: return self.primary.generate(prompt,data,schema)
+        except AgentError as exc:
+            if not fallback_allowed(): raise
+            print(json.dumps({'event':'llm_fallback','from':'omniroute','reason':type(exc).__name__}),flush=True)
+        return self.fallback.generate(prompt,data,schema)
+
+def editorial_engine():
+    return Redator() if os.getenv('LLM_PROVIDER','gemini')=='omniroute' else Gemini()
+
 class Cloudinary:
     def __init__(self,net=None): self.net=net or Net()
     def cover(self,image_bytes,job_id):

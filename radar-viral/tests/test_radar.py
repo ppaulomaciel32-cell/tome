@@ -70,6 +70,21 @@ class RadarTests(unittest.TestCase):
         original=source();self.assertIsNotNone(Editor.validate(angle(),original))
         for change in [{'potencial':6},{'hook':'A feira vai atender 99999 pessoas em Caucaia.'},{'angulo':'A cidade inteira está falando da feira de Caucaia.'},{'evidencia':'Trecho que não existe na fonte original.'}]:
             self.assertIsNone(Editor.validate({**angle(),**change},original),change)
+    def test_omniroute_angle_keeps_guards_and_falls_back_to_gemini(self):
+        original=source();net=Mock()
+        env={'LLM_PROVIDER':'omniroute','OMNIROUTE_API_KEY':'test-only','GEMINI_API_KEY':'test-only','GEMINI_MODEL':'gemini-3.5-flash-lite'}
+        with patch.dict('os.environ',env),patch('tnn_viral.editor.OmniRoute') as omni:
+            omni.return_value.generate.return_value=json.dumps(angle());omni.return_value.tokens=321
+            editor=Editor(net);self.assertEqual(editor.write(original)['gatilho'],'utilidade');self.assertEqual(editor.tokens,321)
+            sent=omni.return_value.generate.call_args.args;self.assertEqual((sent[1]['tarefa'],sent[1]['cidade'],sent[3]),('radar_angulo','Caucaia',0.4))
+            net.json.assert_not_called()
+            omni.return_value.generate.return_value=json.dumps({**angle(),'hook':'A feira vai atender 99999 pessoas em Caucaia.'})
+            self.assertIsNone(editor.write(original));net.json.assert_not_called()
+            from tnn.core import AgentError
+            omni.return_value.generate.side_effect=AgentError('fora')
+            net.json.return_value={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(angle())}]}}]}
+            with patch('sys.stdout',new_callable=io.StringIO):self.assertIsNotNone(editor.write(original))
+            net.json.assert_called_once()
     def fixture_pipeline(self):
         sources=Mock();sources.collect.return_value=[source(n=n,now=self.now) for n in range(1,5)]
         editor=Mock();editor.write.return_value={k:v for k,v in angle().items() if k!='eligible'};editor.tokens=100
