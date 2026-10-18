@@ -42,6 +42,14 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
   const previews=previewRegistry(vault,now);
   const viral=createViral({config,vault,manual,sendGroup,fail,now,fetchImpl:radarFetch});
   const label=id=>{const n=previews.number(id);return n?'Rascunho nº '+n:'#'+id;};
+  // Resumo da redação em linguagem simples (STATUS ou pergunta como "quantas matérias hoje?").
+  const statusText=()=>{
+    const q=manual.status(),open=previews.open(),quota=vault.get('manual:quota',null),later=manual.scheduled?.() || [];
+    return 'Resumo de agora:\n• Publicadas hoje: '+q.publishedToday+'\n• Esperando a sua decisão: '+open.length+(open.length?' ('+open.slice(-8).map(p=>'nº '+p.n).join(', ')+')':'')
+      +'\n• Agendadas: '+later.length+'\n• Pautas sendo preparadas: '+(q.queued+q.processing)+(quota?'\n• Redações usadas hoje: '+quota.used+' de '+quota.limit:'')
+      +'\n\nA busca automática procura pautas da região de hora em hora (6h às 22h) e manda a prévia aqui quando acha. Para pedir uma matéria, mande o assunto, o link da fonte ou o texto da nota.'
+      +'\nPara publicar: APROVAR e o número. Para ajustar: CORRIGIR número: o que mudar.';
+  };
   const needsPhoto=n=>'O rascunho nº '+n+' está sem foto, e no Tome Nota toda matéria sai com foto. Mande a foto aqui com a legenda FOTO '+n+' (ou FOTO '+n+': nome de quem fotografou), ou pelo painel em Rascunhos → Enviar foto de capa. Depois aprove a nova prévia.';
   const cycleState = ()=>{
     if(!config.pipelineToken)return {state:'not_implemented'};
@@ -139,6 +147,10 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       const receipt=createHash('sha256').update(group.id+'|'+identity+'|'+key.id).digest('hex');
       if(await viral.receive({text,receipt,editorHash:messageDigest(identity)}))continue;
       const parsed=parseManual(text);
+      if(config.manualEnabled && parsed?.kind==='status'){
+        if(vault.claim(receipt,now()))try{await sendGroup(statusText());}catch{}
+        continue;
+      }
       if(config.manualEnabled && parsed){
         try{
           if(parsed.kind!=='pauta' && !parsed.draftId){
@@ -209,12 +221,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       if(!vault.claim(receipt,now()))continue;
       try {
         if(parsed && parsed.kind==='pauta'){await sendGroup('Recebi seu texto, mas a produção manual ainda não foi ativada na VPS. A conexão WhatsApp está funcionando; confira o trabalhador e os tokens.');continue;}
-        if(command==='STATUS' && config.manualEnabled){
-          const q=manual.status(),open=previews.open(),quota=vault.get('manual:quota',null);
-          await sendGroup('WhatsApp conectado.\nPublicadas hoje: '+q.publishedToday+'\nAguardando sua decisão: '+open.length+(open.length?'\n'+open.slice(-8).map(p=>'Nº '+p.n+' — '+p.titulo).join('\n'):'')
-            +'\nPautas na fila: '+q.queued+' · em preparo: '+q.processing
-            +(quota?'\nRedações de hoje: '+quota.used+' de '+quota.limit:'')
-            +'\nPara publicar: APROVAR e o número. Para ajustar: CORRIGIR número: o que mudar.');continue;}
+        if(command==='STATUS' && config.manualEnabled){await sendGroup(statusText());continue;}
         const cycle=cycleState();
         const labels={running:'Em apuração',completed:'Último ciclo concluído',skipped:'Último ciclo sem nova matéria',failed:'Último ciclo precisa de atenção',queue_full:'Fila cheia; revise os rascunhos',awaiting_configuration:'Aguardando configuração'};
         await sendGroup(command==='STATUS' ? (cycle.state==='not_implemented' ? 'WhatsApp conectado. Grupo autorizado. A busca e a redação ainda não estão ativadas. Publicação bloqueada até a implementação e aprovação humana.' :
@@ -365,7 +372,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
       await sendGroup('No ar: '+body.url+'\nCompartilhar: '+body.url);return {ok:true};
     }),
     commandResult:body=>run(async()=>{
-      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Não consegui fonte suficiente para esta pauta. Mande o link da fonte oficial (prefeitura, governo, MP, empresa pública) ou cole aqui o texto completo da nota, que eu preparo o rascunho.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',edit_failed:'Não consegui aplicar a correção. Pode ser um pedido com fato ou número que não está na fonte. O rascunho anterior continua valendo.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
+      const messages={draft_ready:'Rascunho salvo e prévia preparada.',weak_sources:'Procurei nas fontes oficiais e na internet e ainda não achei nada publicado sobre isso. Me conte numa mensagem só o que você sabe: o que aconteceu, onde, quando e quem informou. Pode também colar o texto da nota ou mandar o link. Com isso eu escrevo a matéria.',awaiting_configuration:'A redação manual ainda precisa de configuração: Gemini gratuito, fontes e tokens.',already_seen:'Essa pauta já foi registrada. Confira a fila antes de enviar novamente.',queue_full:'A fila de rascunhos está cheia.',quota_limit:'A cota local gratuita foi atingida. Aguarde.',failed:'Não consegui concluir esta pauta. Nenhuma aprovação foi inventada; confira o painel.',rejected:'Rascunho rejeitado; nenhuma publicação foi feita.',edit_failed:'Não consegui aplicar a correção. Pode ser um pedido com fato ou número que não está na fonte. O rascunho anterior continua valendo.',publication_pending:'Matéria aprovada e salva; a página ainda não foi confirmada no ar.',live:'No ar'};
       if(!commandUUID.test(body?.id || '') || !commandUUID.test(body?.lease || '') || !Object.hasOwn(messages,body.code))fail(400,'invalid_result','Resultado inválido.');
       if(body.draftId && !commandUUID.test(body.draftId))fail(400,'invalid_result','ID inválido.');
       if(body.url && !/^https:\/\/tomezap\.com\.br\/noticia\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(body.url))fail(400,'invalid_result','URL inválida.');

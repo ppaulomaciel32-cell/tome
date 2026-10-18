@@ -106,7 +106,8 @@ OWNER_URL='https://tomezap.com.br/sobre/'
 def owner_material(text,now):
     """Texto longo colado pelo editor vira material de base, nunca fato conferido pelo robô."""
     body=' '.join(re.sub(r'https://[^\s<>\"]+',' ',text).split())
-    if len(body)<400:return None
+    # Relato curto do editor também serve: ele responde ao pedido de informações do robô.
+    if len(body)<150:return None
     # O título aparece na lista pública de fontes; nunca expõe o texto privado do grupo.
     return {'id':'redacao','name':'Material enviado à Redação Tome Nota','publisher_group':'redacao-tome-nota','title':'Informações recebidas pela Redação Tome Nota',
         'url':OWNER_URL,'content':body[:12000],'published_date':datetime.fromtimestamp(now,timezone.utc).isoformat(),'owner':True}
@@ -288,10 +289,16 @@ class Collector:
                 **({'official':True} if (source.official if source else public_office(host)) else {})})
         return rows
     def discover(self,now):
-        # Alterna localidades e apuração pública, sem 72 buscas pagas por dia.
-        places=['São Gonçalo do Amarante Ceará','Pecém Ceará','Taíba Ceará','Croatá São Gonçalo do Amarante','Paracuru Ceará']
+        # Busca automática: de hora em hora, das 6h às 22h, com teto próprio no dia.
+        # O resto da cota do Tavily fica para as pautas que o editor manda no grupo.
+        local=datetime.fromtimestamp(now,timezone(timedelta(hours=-3)))
         slot=int(now)//self.config.interval
-        investigative=slot%3==0
+        if not 6<=local.hour<22 or slot%3:return []
+        try:cap=max(0,min(30,int(os.getenv('TNN_DISCOVER_TAVILY_DAY','6'))))
+        except ValueError:cap=6
+        if not self.quota.reserve('tavily-discover',cap):return []
+        places=['São Gonçalo do Amarante Ceará','Pecém Ceará','Taíba Ceará','Croatá São Gonçalo do Amarante','Paracuru Ceará']
+        investigative=local.hour%3==0
         query=places[slot%len(places)]+(' licitação contrato edital diário oficial MPCE TCE' if investigative else ' notícias')
         rows=self.search(query,now)
         if investigative:

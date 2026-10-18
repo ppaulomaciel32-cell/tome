@@ -23,6 +23,9 @@ export function parseManual(text){
   if(retitle)return {kind:'edit',mode:'title',text:retitle[1].trim(),latest:true,revision:1};
   if(approveWords.test(plain))return {kind:'approve',latest:true,revision:1};
   if(rejectWords.test(plain))return {kind:'reject',latest:true,revision:1};
+  // Pergunta sobre a própria redação ("quantas matérias hoje?") é pedido de resumo, não pauta.
+  const asks=/\?\s*$/.test(plain) || /^(quantas?|quantos?|qual|quais|quando|cad[êe]|tem|teve|como\s+(?:est[áa]|t[áa]|anda))(?=[\s,.!?]|$)/i.test(plain);
+  if(plain.length<=200 && !/https?:\/\//i.test(plain) && asks && /\b(mat[ée]rias?|pautas?|rascunhos?|publica[cç](?:[ãa]o|[õo]es)|publicad[ao]s?|fila|rob[ôo]|aprova[cç](?:[ãa]o|[õo]es)|agendad[ao]s?)\b/i.test(plain))return {kind:'status'};
   if(/^(STATUS|APROVAR|REJEITAR|EDITAR|CORRIGIR|STORIES|REELS|PAUSAR|RETOMAR|AGENDAR|CANCELAR)(?:\s|:|$)/i.test(text))return null;
   const body=text.replace(/^(?:MANCHETE|PAUTA)\s*:\s*/i,'').trim();
   return body.length>=20 && body.length<=4000?{kind:'pauta',text:body}:null;

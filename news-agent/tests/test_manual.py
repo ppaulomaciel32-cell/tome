@@ -248,3 +248,17 @@ class ManualTests(unittest.TestCase):
         # Fonte aprovada comum, sozinha e sem marcação oficial, não basta.
         self.assertFalse(accepted(collector.manual('https://a.example/news',now)))
 
+
+class DiscoverBudgetTests(unittest.TestCase):
+    def test_automatic_search_runs_hourly_in_daytime_and_keeps_budget_for_editor(self):
+        from datetime import datetime,timezone,timedelta
+        state=State(fakeredis.FakeRedis(decode_responses=True))
+        config=dataclasses.replace(Config(manual_enabled=True,gemini_free=True,sources=(SOURCE,SOURCE_B)),tavily_free=True,tavily_daily=30,tavily_monthly=900)
+        collector=Collector(config,state);calls=[];collector.search=lambda query,now,topic='news':calls.append(query) or []
+        at=lambda hour,minute=0:datetime(2026,10,18,hour,minute,tzinfo=timezone(timedelta(hours=-3))).timestamp()
+        collector.discover(at(3));self.assertEqual(calls,[])            # madrugada: não gasta
+        collector.discover(at(10,20));self.assertEqual(calls,[])        # fora da hora cheia
+        with patch.dict('os.environ',{'TNN_DISCOVER_TAVILY_DAY':'2'}):
+            for hour in (6,7,8,9):collector.discover(at(hour))
+        self.assertEqual(len(calls),2)                                  # teto próprio do dia
+        self.assertTrue(state.reserve('tavily',30,900))                 # a cota geral continua livre para o editor

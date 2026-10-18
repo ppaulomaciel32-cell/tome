@@ -84,7 +84,7 @@ test('manual: o dono no próprio número envia pauta e STATUS; o robô não entr
   await f.message({fromMe:true,text:f.sends[0].msg.text,id:'unknown-echo-id'});
   await f.message({fromMe:true,text:'MANCHETE: Ponte do Pecém recebe vistoria após chuva',id:'own-message'});
   assert.equal(f.c.status().manual.queued,1);assert.equal(f.sends.length,1);
-  await f.message({fromMe:true,text:'STATUS'});assert.match(f.sends[1].msg.text,/Pautas na fila: 1/);
+  await f.message({fromMe:true,text:'STATUS'});assert.match(f.sends[1].msg.text,/Pautas sendo preparadas: 1/);
   const result=await f.c.claimCommand({publisherReady:true});assert.equal(result.command.kind,'pauta');
   assert.doesNotMatch(JSON.stringify(result.command),new RegExp(number));
 });
@@ -430,7 +430,7 @@ test('correção: assina só a retirada do rascunho antigo, renumera a prévia e
   await f.message({fromMe:true,text:'pode publicar'});
   ({command}=await f.c.claimCommand({publisherReady:true}));assert.equal(command.kind,'approve');assert.equal(command.draftId,fresh.id);
   await f.message({text:'STATUS'});const status=f.sends.at(-1).msg.text;
-  assert.match(status,/Publicadas hoje: 0/);assert.match(status,/Redações de hoje: 3 de 60/);assert.match(status,/CORRIGIR número/);
+  assert.match(status,/Publicadas hoje: 0/);assert.match(status,/Redações usadas hoje: 3 de 60/);assert.match(status,/CORRIGIR número/);
 });
 test('painel: decisão usa o mesmo fluxo assinado, avisa o grupo e não decide duas vezes',async t=>{
   const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64),editorialSigningKey:'c'.repeat(64)}});await f.connect();await f.bind();
@@ -464,4 +464,15 @@ test('regra do jornal: sem foto real não publica; FOTO 12 com imagem refaz a pr
   await f.message({fromMe:true,text:'APROVAR 2'});const next=(await f.c.claimCommand({publisherReady:true})).command;assert.equal(next.kind,'approve');assert.equal(next.draftId,withPhoto.id);
   const official={...draftPreview(),cover:'source',coverUrl:withPhoto.coverUrl,coverCredit:'Órgão/Divulgação'};await f.c.preview(official);
   assert.deepEqual(await f.c.panelDecision({kind:'approve',draftId:official.id,actor:'d'.repeat(64),nonce:'11111111-2222-4333-8444-555555555556'}),{queued:true,number:3});
+});
+
+test('pergunta sobre a redação vira resumo; pergunta sobre a cidade continua sendo pauta',async t=>{
+  assert.deepEqual(parseManual('Quantas matérias para hoje ?'),{kind:'status'});
+  assert.deepEqual(parseManual('tem rascunho esperando?'),{kind:'status'});
+  assert.deepEqual(parseManual('como está a fila de publicações'),{kind:'status'});
+  assert.equal(parseManual('Por que a obra da CE-085 em Paracuru parou?').kind,'pauta');
+  assert.equal(parseManual('Quantas escolas de São Gonçalo vão ganhar reforma este ano?').kind,'pauta');
+  const f=await fixture(t,{cfg:{...config(),acceptOwnCommands:true,manualEnabled:true,pipelineToken:'b'.repeat(64)}});await f.connect();await f.bind();
+  await f.message({fromMe:true,text:'Quantas matérias para hoje ?'});
+  assert.match(f.sends.at(-1).msg.text,/Resumo de agora/);assert.match(f.sends.at(-1).msg.text,/busca automática/);assert.equal(f.c.status().manual.queued,0);
 });
