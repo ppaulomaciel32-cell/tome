@@ -57,17 +57,13 @@ async function scroll(page, top) {
   await page.goto(base,{waitUntil:"domcontentloaded"});
   await page.waitForFunction(() => document.querySelector(".tn-reveal__person").complete &&
     document.querySelector(".tn-reveal__person").naturalWidth > 0);
-  await page.waitForFunction(() => document.getElementById("tn-stage-video").readyState >= 3, null, {timeout:45000});
-  await check("real H.264 video, local GSAP and one h1", async () => {
+  await check("no stage video, local GSAP and one h1", async () => {
     assert.equal(await page.locator("h1").count(),1);
     assert.equal(await page.evaluate(() => gsap.version),"3.15.0");
     assert.equal(await page.evaluate(() => ScrollTrigger.version),"3.15.0");
-    const video = await page.locator("#tn-stage-video").evaluate(video => ({
-      duration:video.duration, paused:video.paused, transform:getComputedStyle(video).transform,
-      h264:video.canPlayType('video/mp4; codecs="avc1.42E01E"')
-    }));
-    assert.ok(video.duration > 4 && video.duration < 5);
-    assert.equal(video.paused,true); assert.equal(video.transform,"none"); assert.ok(video.h264);
+    // A esfera 3D saiu: fundo do jornal, sem vídeo.
+    assert.equal(await page.locator(".tn-stage video").count(),0);
+    assert.equal(await page.locator(".tn-stage__backdrop").count(),1);
   });
   await check("hero height and cursor snap, easing and leave", async () => {
     const box = await page.locator(".tn-reveal").boundingBox();
@@ -96,16 +92,8 @@ async function scroll(page, top) {
     await page.waitForTimeout(350);
   });
   let stage = await page.locator(".tn-stage").boundingBox();
-  await check("sticky viewport, forward and reverse scrubbing, and desktop reading interval", async () => {
-    await scroll(page,stage.y+(stage.height-900)*.35);
-    const first = await page.locator("#tn-stage-video").evaluate(video => video.currentTime);
-    assert.ok(first > 1 && first < 2);
-    await scroll(page,stage.y+(stage.height-900)*.7);
-    const second = await page.locator("#tn-stage-video").evaluate(video => video.currentTime);
-    assert.ok(second>first+.8);
+  await check("sticky viewport and desktop reading interval", async () => {
     await scroll(page,stage.y+(stage.height-900)*.2);
-    const reversed = await page.locator("#tn-stage-video").evaluate(video => video.currentTime);
-    assert.ok(reversed<second-.8);
     const viewport = await page.locator(".tn-stage__viewport").boundingBox();
     assert.ok(Math.abs(viewport.y)<2);
     await scroll(page,stage.y+(stage.height-900)*.62);
@@ -166,12 +154,10 @@ async function scroll(page, top) {
       await fallback.goto(base,{waitUntil:"domcontentloaded"});
       await fallback.waitForTimeout(350);
       const state = await fallback.evaluate(() => ({motion:document.documentElement.classList.contains("tn-motion"),
-        src:document.getElementById("tn-stage-video").getAttribute("src"),
-        poster:document.getElementById("tn-stage-video").poster,
         sticky:getComputedStyle(document.querySelector(".tn-stage__viewport")).position,
         hidden:[...document.querySelectorAll(".tn-promise__card")].some(node=>getComputedStyle(node).visibility==="hidden"),
         width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
-      assert.equal(state.motion,false); assert.equal(state.src,null); assert.ok(state.poster);
+      assert.equal(state.motion,false);
       assert.notEqual(state.sticky,"sticky"); assert.equal(state.hidden,false);
       assert.ok(state.scroll<=state.width+1); assert.equal(videoRequests,0);
       if (mode==="reduced-motion") await fallback.screenshot({path:path.join(shots,"mobile-static.png"),fullPage:true});

@@ -64,10 +64,7 @@
 <script>(function (h) { document.documentElement.style.setProperty("--tn-reveal-top", Math.round(h.getBoundingClientRect().top + scrollY) + "px"); })(document.querySelector(".tn-reveal"));</script>
 <section class="tn-stage" aria-labelledby="tn-stage-title">
   <div class="tn-stage__viewport">
-    <div class="tn-stage__video-wrapper" aria-hidden="true">
-      <video id="tn-stage-video" class="tn-stage__video" muted playsinline preload="auto" crossorigin="anonymous" disablepictureinpicture disableremoteplayback tabindex="-1"></video>
-      <div class="tn-stage__overlay"></div>
-    </div>
+    <div class="tn-stage__backdrop" aria-hidden="true"></div>
     <div class="tn-stage__content">
       <div class="tn-stage__message">
         <h2 id="tn-stage-title" class="tn-stage__title">Feito perto<br>de quem vive<br><strong>a notícia.</strong></h2>
@@ -96,7 +93,6 @@
         </div>
       </div>
     </div>
-    <div class="tn-stage__loading" aria-hidden="true">Carregando… <span id="tn-stage-progress">0</span>%</div>
   </div>
 </section>
 <section class="wrap news-section" id="ultimas" aria-labelledby="news-title"><div class="section-heading"><h2 id="news-title">Últimas notícias</h2><span id="result-count" class="result-count" aria-live="polite"></span></div>

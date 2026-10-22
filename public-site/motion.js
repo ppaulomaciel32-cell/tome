@@ -10,9 +10,6 @@
     !!(navigator.connection && navigator.connection.saveData);
   const gsap = window.gsap;
   const ScrollTrigger = window.ScrollTrigger;
-  const VIDEO_SRC = "https://res.cloudinary.com/dalwymbky/video/upload/vc_h264,ac_none,ki_0.1,q_auto/v1784654111/hero1_xgxoxk.mp4";
-  const STATIC_POSTER = "https://res.cloudinary.com/dalwymbky/video/upload/so_35p,w_1920,f_auto,q_auto/v1784654111/hero1_xgxoxk.jpg";
-  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   let refreshFrame = 0;
   let initialized = false;
   let timelineMounted = false;
@@ -152,86 +149,13 @@
       }
     }, stage);
   }
-  function initVideo(video) {
-    const loader = stage.querySelector(".tn-stage__loading");
-    const progress = document.getElementById("tn-stage-progress");
-    let duration = 0;
-    let targetTime = 0;
-    let currentTime = 0;
-    let rafId = 0;
-    let running = false;
-    let metadataReady = false;
-    let visibility = null;
-    const hideLoader = () => loader?.classList.add("is-hidden");
-    const timeout = setTimeout(hideLoader, 10000);
-    function stop() {
-      running = false;
-      cancelAnimationFrame(rafId);
-      rafId = 0;
-    }
-    function tick() {
-      if (!running) return;
-      currentTime += (targetTime - currentTime) * .08;
-      const t = clamp(currentTime, 0, duration);
-      if (!video.seeking && Math.abs(video.currentTime - t) > .01) video.currentTime = t;
-      rafId = requestAnimationFrame(tick);
-    }
-    function start() {
-      if (running || document.hidden || !duration) return;
-      running = true;
-      rafId = requestAnimationFrame(tick);
-    }
-    function metadata() {
-      if (metadataReady || !Number.isFinite(video.duration) || video.duration <= 0) return;
-      metadataReady = true;
-      duration = video.duration;
-      video.pause();
-      const st = ScrollTrigger.create({
-        trigger: stage, start: "top top", end: "bottom bottom",
-        onUpdate: self => { targetTime = clamp(self.progress * duration, 0, duration); }
-      });
-      targetTime = currentTime = clamp(st.progress * duration, 0, duration);
-      if (!video.seeking) video.currentTime = currentTime;
-      visibility = ScrollTrigger.create({
-        trigger: stage, start: "top bottom", end: "bottom top",
-        onToggle: self => { if (self.isActive) start(); else stop(); }
-      });
-      if (visibility.isActive) start();
-    }
-    video.addEventListener("loadedmetadata", metadata);
-    video.addEventListener("progress", () => {
-      if (!duration || !video.buffered.length || !progress) return;
-      const pct = clamp(Math.round(video.buffered.end(video.buffered.length - 1) / duration * 100), 0, 100);
-      progress.textContent = String(pct);
-    });
-    video.addEventListener("canplay", () => { clearTimeout(timeout); hideLoader(); });
-    video.addEventListener("error", () => { clearTimeout(timeout); hideLoader(); stop(); });
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) stop(); else if (visibility?.isActive) start();
-    });
-    window.addEventListener("pagehide", stop);
-    window.addEventListener("pageshow", () => { if (visibility?.isActive) start(); });
-    window.addEventListener("touchstart", () => {
-      const result = video.play();
-      if (result && typeof result.then === "function") result.then(() => video.pause()).catch(() => {});
-      else video.pause();
-    }, { once: true, passive: true });
-    video.src = VIDEO_SRC;
-    video.load();
-    if (video.readyState >= 1) metadata();
-    if (video.readyState >= 3) { clearTimeout(timeout); hideLoader(); }
-  }
   function init() {
     if (initialized) return;
     initialized = true;
     initReveal();
-    const video = document.getElementById("tn-stage-video");
-    const wrapper = stage?.querySelector(".tn-stage__video-wrapper");
     const viewport = stage?.querySelector(".tn-stage__viewport");
-    if (!video || !wrapper || !viewport) return;
-    if (staticMode) { video.poster = STATIC_POSTER; return; }
+    if (!viewport || staticMode) return;
     initTimeline(viewport);
-    initVideo(video);
   }
   if (document.readyState === "complete") init();
   else document.addEventListener("DOMContentLoaded", init, { once: true });

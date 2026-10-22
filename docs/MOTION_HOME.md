@@ -23,7 +23,7 @@ Os scripts sao servidos por /vendor, sem CDN, sem build ou npm install no deploy
 
 As cinco URLs fornecidas estao somente nos locais definidos na especificacao:
 base e alternativa nas variaveis CSS, recorte no src da imagem,
-video e poster nas constantes de motion.js. O preload repete apenas a base.
+A esfera em vídeo saiu em 22/10/2026 (pedido do dono: traço de IA); a seção usa .tn-stage__backdrop com o azul do jornal.
 O script usa currentSrc/src do recorte para a mascara da silhueta.
 A tipografia usa tamanhos fixos por breakpoint e espacamento zero entre letras;
 a composicao mantem as fontes e cores existentes. Tempos, mascaras, interpolacao,
