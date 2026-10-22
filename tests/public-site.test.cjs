@@ -265,6 +265,26 @@ test("placeholder clients never load ads, and placeholder slots are not queued",
   assert.equal(space.hidden, true, "Later article placeholders are also hidden");
   assert.equal(env.window.adsbygoogle, undefined);
 });
+test("Auto Ads loads once on an empty listing after consent, independently of manual slots", () => {
+  const env = listEnvironment(); env.slots.length = 0;
+  run(env, "assets/js/config.js");
+  env.window.TNN_CONFIG = {...env.window.TNN_CONFIG, autoAds: true, adSlots: {home: ""}};
+  run(env, "assets/js/consent.js"); run(env, "assets/js/ads.js");
+  assert.equal(env.head.children.length, 0);
+  choose(env, "Aceitar todos");
+  const script = env.head.firstChild;
+  assert.equal(script.src, "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2000164835494228");
+  assert.equal(script.async, true); assert.equal(script.crossOrigin, "anonymous");
+  script.onload(); env.window.TNNAds.refresh();
+  assert.equal(env.head.children.length, 1); assert.equal(env.window.adsbygoogle, undefined);
+});
+test("Auto Ads disabled with no valid manual slot never loads Google", () => {
+  const env = listEnvironment(); env.slots.forEach(slot => { slot.dataset.adSlot = "0000000000"; });
+  env.window.TNN_CONFIG.autoAds = false;
+  run(env, "assets/js/consent.js"); run(env, "assets/js/ads.js");
+  choose(env, "Aceitar todos"); env.window.TNNAds.refresh();
+  assert.equal(env.head.children.length, 0); assert.equal(env.window.adsbygoogle, undefined);
+});
 test("individual article is queried by slug, safely rendered, with live metadata and NewsArticle", async () => {
   const env = environment();
   const article = new Node("article"); env.ids["article-view"] = article;

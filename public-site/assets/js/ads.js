@@ -38,9 +38,8 @@
     const client = window.TNN_CONFIG.adClient;
     prepareSlots(client);
     if (window.TNNConsent?.get() !== "all" || !/^ca-pub-\d{16}$/.test(client)) return;
-    // Na lista, só solicitamos anúncios quando há um espaço manual válido.
-    // Sem ADSENSE_SLOT_HOME, o anúncio da casa permanece no lugar reservado.
-    if(document.getElementById("news-grid") && ![...document.querySelectorAll('ins.adsbygoogle')].some(isConfigured))return;
+    // Auto Ads também funciona na home e nas cidades sem IDs de blocos manuais.
+    // O script do Google continua bloqueado até o consentimento para publicidade.
     if(window.TNN_CONFIG.autoAds===false && ![...document.querySelectorAll('ins.adsbygoogle')].some(isConfigured))return;
     if (document.getElementById("tnn-adsense")) { queueSlots(); return; }
     if (loading) return;

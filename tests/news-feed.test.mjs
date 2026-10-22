@@ -88,7 +88,10 @@ test('DOM: anúncios rotulados, separados da notícia, com fallback e consentime
    const img=e.grid.querySelector('img');assert.equal(img.width,800);assert.equal(img.height,450);assert.match(img.srcset,/-800.webp 800w/);assert.equal(img.getAttribute('loading'),'lazy');
    e.w.TNN_CONFIG.autoAds=true;
    e.w.eval(scripts[2]);assert.equal(e.w.document.getElementById('tnn-adsense'),null);
-   e.w.TNNConsent={get:()=>'all'};e.w.TNNAds.refresh();assert.equal(e.w.document.getElementById('tnn-adsense'),null);
+   e.w.TNNConsent={get:()=>'all'};e.w.TNNAds.refresh();assert.ok(e.w.document.getElementById('tnn-adsense'));
+   assert.equal(e.w.document.querySelectorAll('#tnn-adsense').length,1);
+   assert.ok(ads.every(ad=>ad.querySelector('.house-ad').hidden===false));
+   assert.ok(ads.every(ad=>ad.querySelector('.adsbygoogle').hidden===true));
    e.w.TNNConsent={get:()=>null};
    e.w.TNN_CONFIG.adSlots.home='1234567890';e.w.TNNAds.refresh();assert.equal(ads[0].querySelector('.house-ad').hidden,false);
    e.w.TNNConsent={get:()=>'all'};e.w.TNNAds.refresh();assert.ok(e.w.document.getElementById('tnn-adsense'));

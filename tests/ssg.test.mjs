@@ -41,6 +41,9 @@ test('SSG publishes only visible stories, escapes data, builds localities and pr
  // Exercise a domain change through the public build interface, including generated routes.
  for(const relative of ['index.html','sobre.html','contato.html','politica-de-privacidade.html','termos-de-uso.html','politica-de-cookies.html','noticia.html','noticia/teste-da-taiba/index.html',...['sao-goncalo','pecem','taiba','croata','paracuru','regiao'].map(slug=>'localidade/'+slug+'/index.html')]) {
    const html=await fs.readFile(path.join(out,relative),'utf8');
+   const pageHead=html.split('</head>')[0];
+   assert.equal((pageHead.match(/<script src="[^\"]*assets\/js\/ads\.js" defer><\/script>/g)||[]).length,1,relative+' loads the consent-aware AdSense integration once');
+   assert.ok(pageHead.indexOf('assets/js/consent.js')<pageHead.indexOf('assets/js/ads.js'),relative+' checks consent first');
    const canonical=html.match(/<link rel="canonical" href="([^"]+)"/)[1];
    const social=html.match(/<meta property="og:url" content="([^"]+)"/)[1];
    assert.equal(new URL(canonical).origin,site,relative);
