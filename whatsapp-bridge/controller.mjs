@@ -287,7 +287,7 @@ export function createController({config, vault, auth, socketFactory, qrEncoder,
     // Resumo da redação para o painel: só números, IDs e títulos já enviados ao grupo.
     newsroom:()=>{
       const q=manual.status(),quota=vault.get('manual:quota',null);
-      return {previews:previews.open().slice(-30).map(p=>({n:p.n,id:p.id,titulo:p.titulo,at:new Date(p.at).toISOString()})),
+      return {previews:previews.open().slice(-30).map(p=>({n:p.n,id:p.id,titulo:p.titulo,at:new Date(p.at).toISOString(),photo:p.photo===true})),
         scheduled:manual.scheduled(),
         publishedToday:q.publishedToday,queued:q.queued,processing:q.processing,quota:quota?{used:quota.used,limit:quota.limit}:null,
         workerSeenAt:vault.get('manual:workerAt',null),manualEnabled:Boolean(config.manualEnabled)};

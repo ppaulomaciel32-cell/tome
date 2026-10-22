@@ -26,6 +26,17 @@ test('painel: aprovar pede confirmação; correção exige texto; cada pedido le
   main.querySelector('#edit-text').value='deixe mais curto';main.querySelector('[data-act=fix]').click();await tick();
   assert.deepEqual([calls[1][1].kind,calls[1][1].mode,calls[1][1].text],['edit','fix','deixe mais curto']);assert.notEqual(calls[1][1].nonce,calls[0][1].nonce);
 });
+test('painel: sem foto real o Aprovar fica travado e o envio da capa vem primeiro',async()=>{
+  const main=document.getElementById('m'),calls=[];window.confirm=()=>true;
+  main.innerHTML=draftDetail(draft({capa_url:null}),false,{number:9,actions:true,photo:false});
+  mountDraftActions(main,{id,draft:draft({capa_url:null}),photo:false,request:async(path,body)=>{calls.push([path,body]);return {};}});
+  const approve=main.querySelector('[data-act=approve]');assert.ok(approve.disabled);assert.match(approve.textContent,/falta a foto/);
+  const alert=main.querySelector('.draft-photo-needed');assert.match(alert.textContent,/FOTO 9/);
+  const upload=alert.querySelector('details.draft-edit');assert.ok(upload && upload.open);assert.match(upload.querySelector('summary').textContent,/foto de capa/i);
+  approve.click();await tick();assert.equal(calls.length,0);
+  main.innerHTML=draftList({drafts:[{id,titulo:'A',resumo:'B',localidade:'pecem'}]},false,{[id]:9},{[id]:false});assert.match(main.innerHTML,/SEM FOTO/);
+  main.innerHTML=draftDetail(draft(),false,{number:7,actions:true});assert.equal(main.querySelector('.draft-photo-needed'),null);assert.equal(main.querySelector('[data-act=approve]').disabled,false);
+});
 test('painel: ferramentas só apontam para o túnel local',()=>{
   const links=[...new JSDOM(toolsPage()).window.document.querySelectorAll('a')].map(a=>a.href);
   assert.equal(links.length,5);for(const link of links)assert.match(link,/^http:\/\/localhost:181\d\d\/$/);

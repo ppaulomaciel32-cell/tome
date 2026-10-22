@@ -58,3 +58,9 @@
 @media(max-width:620px){.draft-actions{padding:18px}.draft-action-row .button{flex:1}}
 .editor-tools label{display:grid;gap:.5rem;margin:1rem 0}.editor-tools input,.editor-tools textarea,.editor-tools select{box-sizing:border-box;width:100%;max-width:100%;padding:.8rem;border:1px solid #bac8d7;border-radius:10px;font:inherit;color:#112b44;background:white}.editor-tools textarea{line-height:1.7;resize:vertical}.editor-tools button,.editor-tools summary{min-height:44px}.editor-tools [role=status]{overflow-wrap:anywhere}
 .draft-card[data-viral-id]{display:block;overflow-wrap:anywhere}.draft-card[data-viral-id] label{display:grid;gap:8px;margin:16px 0}.draft-card[data-viral-id] select,.draft-card[data-viral-id] textarea,[data-radar-city]{box-sizing:border-box;width:100%;padding:12px;font:inherit;border:1px solid #b4c2cf;border-radius:8px;background:#fff;color:#163149;min-height:44px}.draft-card[data-viral-id] li{margin:8px 0}.draft-card[data-viral-id] .button{min-height:44px}
+/* Rascunho sem foto: aviso antes do clique em Aprovar (regra do jornal). */
+.draft-photo-needed{background:#fff4e5;border:1px solid #f0c98a;border-left:5px solid #d98a00;padding:16px 18px;border-radius:12px;margin:10px 0 16px;color:#5a3a00}
+.draft-photo-needed p{margin:6px 0 10px;font-size:14px;line-height:1.55}
+.draft-photo-needed .draft-edit{background:#fff;margin:0}
+.draft-action-row button[disabled]{opacity:.55;cursor:not-allowed}
+.draft-no-photo{margin-left:8px;padding:2px 8px;border-radius:999px;background:#fff4e5;color:#8a5300;border:1px solid #f0c98a;font-size:11px;letter-spacing:.04em}

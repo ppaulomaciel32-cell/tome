@@ -89,8 +89,10 @@ export function mountShell({root, user = null, preview = false, onLogout = () =>
       Promise.all([whatsappRequest('/drafts'+(detail?'/'+detail[1]:'' )),whatsappRequest('/newsroom').catch(()=>null)]).then(([data,room])=>{
         if(!target.isConnected)return;
         const numbers=Object.fromEntries((room?.previews || []).map(p=>[p.id,p.n]));
-        main.innerHTML=detail?draftDetail(data,false,{number:numbers[detail[1]],actions:Boolean(numbers[detail[1]])}):draftList(data,false,numbers)+scheduledHTML(room?.scheduled || []);
-        if(detail && numbers[detail[1]])mountDraftActions(main,{id:detail[1],request:whatsappRequest,draft:data});
+        // Regra do jornal: sem foto real a ponte recusa a aprovação; o painel avisa antes do clique.
+        const photos=Object.fromEntries((room?.previews || []).map(p=>[p.id,p.photo!==false]));
+        main.innerHTML=detail?draftDetail(data,false,{number:numbers[detail[1]],actions:Boolean(numbers[detail[1]]),photo:photos[detail[1]]!==false}):draftList(data,false,numbers,photos)+scheduledHTML(room?.scheduled || []);
+        if(detail && numbers[detail[1]])mountDraftActions(main,{id:detail[1],request:whatsappRequest,draft:data,photo:photos[detail[1]]!==false});
         if(!detail)mountSchedules(main,whatsappRequest);
       }).catch(error=>{
         if(!target.isConnected)return;

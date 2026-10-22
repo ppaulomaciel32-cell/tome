@@ -21,9 +21,10 @@ export const statCards=()=>[['total','globe','No site'],['hoje','book','Publicad
   .map(([key,i,title])=>`<article class="stat-card" data-stat="${key}"><span>${title}${icon(i)}</span><strong>—</strong><small>consultando…</small></article>`).join('');
 
 // Ações do rascunho: o mesmo caminho assinado do grupo do WhatsApp.
-export function draftActionsHTML(number){
+export function draftActionsHTML(number,photo=true){
   return `<section class="draft-actions" data-draft-actions aria-label="Decidir sobre este rascunho"><p class="eyebrow">SUA DECISÃO${number?' · RASCUNHO Nº '+escHub(number):''}</p>
-    <div class="draft-action-row"><button class="button primary" data-act="approve">${icon('check')}Aprovar e publicar</button><button class="button ghost" data-act="reject">Rejeitar</button></div>
+    ${photo?'':'<div class="draft-photo-needed" role="alert"><strong>Falta a foto para publicar.</strong><p>Toda matéria do Tome Nota sai com foto real. Envie a foto de capa aqui embaixo (ou responda no grupo com a foto e FOTO '+escHub(number || '')+'). O robô gera uma nova prévia com a foto e aí você aprova.</p><div data-photo-slot></div></div>'}
+    <div class="draft-action-row"><button class="button primary" data-act="approve"${photo?'':' disabled title="Envie a foto de capa primeiro"'}>${icon('check')}${photo?'Aprovar e publicar':'Aprovar (falta a foto)'}</button><button class="button ghost" data-act="reject">Rejeitar</button></div>
     <details class="draft-edit"><summary>Pedir correção ou trocar a manchete</summary>
       <label for="edit-text">O que mudar</label><textarea id="edit-text" maxlength="1500" rows="3" placeholder="Ex.: deixe o texto mais curto e tire o último parágrafo"></textarea>
       <button class="button ghost" data-act="fix">Pedir correção</button>
@@ -32,9 +33,14 @@ export function draftActionsHTML(number){
     </details><p class="draft-action-status" role="status" aria-live="polite"></p>
     <p class="draft-action-note">O robô confirma no grupo do WhatsApp. Aprovar publica no site em poucos minutos; correção gera um novo rascunho para aprovar.</p></section>`;
 }
-export function mountDraftActions(main,{id,request,draft}){
+export function mountDraftActions(main,{id,request,draft,photo=true}){
   const box=main.querySelector('[data-draft-actions]');if(!box)return;
   if(draft)mountEditor(box,{id,draft,request});
+  if(!photo){
+    // Sem foto, o envio da capa vem primeiro e já aberto.
+    const upload=[...box.querySelectorAll('details.draft-edit')].find(d=>/foto de capa/i.test(d.querySelector('summary')?.textContent || ''));
+    if(upload){upload.open=true;box.querySelector('[data-photo-slot]')?.append(upload);}
+  }
   const status=box.querySelector('.draft-action-status');
   const ask={approve:'Publicar esta matéria no site agora?',reject:'Descartar este rascunho? Ele não será publicado.'};
   box.querySelectorAll('[data-act]').forEach(button=>button.addEventListener('click',async()=>{
